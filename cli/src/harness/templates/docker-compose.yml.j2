@@ -15,8 +15,9 @@ services:
       - ../:/work:cached
       # Persist $HOME across `make down` / `make up` to retain tool caches
       # (npm, cargo, playwright, pip, gradle, ...) without language-specific
-      # knowledge. `make reset` wipes it.
-      - harness-home:/root
+      # knowledge. `make reset` wipes it. Mount point follows the non-root
+      # harness user's $HOME (see env/Dockerfile).
+      - harness-home:/home/harness
     environment:
       - HARNESS_ROOT=/work
 {% if services %}

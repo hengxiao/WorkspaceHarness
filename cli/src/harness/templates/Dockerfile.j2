@@ -3,8 +3,14 @@ FROM {{ base_image }}
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Pass these from the host at build time (the Makefile does this
+# automatically). Defaults to 1000:1000 — the common Linux first-user pair —
+# so ad-hoc `docker build` without the Makefile still produces a usable image.
+ARG HOST_UID=1000
+ARG HOST_GID=1000
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      git make curl jq ca-certificates build-essential \
+      git make curl jq ca-certificates build-essential sudo \
       python3 python3-pip python3-venv \
       && rm -rf /var/lib/apt/lists/*
 
@@ -26,6 +32,28 @@ RUN pip install --break-system-packages /opt/harness-cli
 # Add custom RUN/COPY steps here. They survive `harness bootstrap`.
 # HARNESS:KEEP:END custom-tooling
 
+# --- non-root user -----------------------------------------------------------
+# Create a "harness" user matching the host UID/GID so bind-mounted files
+# stay editable from the host (node_modules, build artifacts, reports, ...).
+# The user is added to sudoers NOPASSWD so projects needing occasional root
+# can still run `sudo apt-get install ...` inside the container. Full root
+# shells are available via `make shell-root` or
+# `docker-compose exec --user root dev bash`.
+#
+# Edge case: Ubuntu 24.04 ships a default `ubuntu` user at UID 1000. We
+# delete it first so we can re-create at whatever the host UID is. This
+# works even when HOST_UID happens to equal 1000.
+RUN (userdel -r ubuntu 2>/dev/null || true) && \
+    groupadd --non-unique --gid ${HOST_GID} harness && \
+    useradd --non-unique --uid ${HOST_UID} --gid ${HOST_GID} \
+            --shell /bin/bash --create-home harness && \
+    echo 'harness ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/harness && \
+    chmod 440 /etc/sudoers.d/harness
+
+USER harness
 WORKDIR /work
+# Put pip-install --user scripts on PATH so `pip install --user <pkg>` works
+# without needing explicit PATH manipulation.
+ENV PATH=/home/harness/.local/bin:$PATH
 ENTRYPOINT ["bash", "-lc"]
 CMD ["bash"]

@@ -16,8 +16,9 @@ services:
       # Persist $HOME across `make down` / `make up`. This catches tool caches
       # that live outside /work (npm, cargo, playwright, pip, gradle, maven, ...)
       # without the harness needing to know any specific tool. `make reset`
-      # (docker-compose down -v) wipes it.
-      - harness-home:/root
+      # (docker-compose down -v) wipes it. Mount matches the non-root harness
+      # user's $HOME (see env/Dockerfile).
+      - harness-home:/home/harness
     environment:
       - HARNESS_ROOT=/work
     # HARNESS:KEEP:BEGIN dev-extras

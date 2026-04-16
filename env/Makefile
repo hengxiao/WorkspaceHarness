@@ -18,11 +18,16 @@ COMPOSE := $(shell docker compose version >/dev/null 2>&1 \
 
 IMAGE := harness-dev
 
+# Host UID/GID baked into the image so the non-root container user
+# matches the caller, keeping bind-mounted files editable on the host.
+HOST_UID := $(shell id -u)
+HOST_GID := $(shell id -g)
+
 .PHONY: help \
         bootstrap reindex report \
         image image-force \
         deps build test lint run \
-        shell up down reset \
+        shell shell-root up down reset \
         ctx-validate policy-check \
         ci init-check ensure-up ensure-image
 
@@ -44,7 +49,8 @@ help:
 	@echo "  Environment:"
 	@echo "    image          Build the dev image (only if missing)"
 	@echo "    image-force    Rebuild the dev image unconditionally (use after CLI changes)"
-	@echo "    shell          Open a shell inside the dev container"
+	@echo "    shell          Open a shell inside the dev container (as non-root)"
+	@echo "    shell-root     Open a shell as root (for apt-get etc.)"
 	@echo "    up             Start the dev container (persistent)"
 	@echo "    down           Stop all containers"
 	@echo "    reset          Stop containers and wipe volumes"
@@ -83,9 +89,15 @@ report:
 image: ensure-image
 
 # Always rebuild the dev image. Use after changing cli/, the Dockerfile, or
-# runtime_blocks in harness.yml.
+# runtime_blocks in harness.yml. The HOST_UID/HOST_GID build args make the
+# in-container "harness" user match the caller, so bind-mounted files stay
+# editable on the host without chown dances.
 image-force:
-	docker build -f $(HARNESS_ROOT)/env/Dockerfile -t $(IMAGE) $(HARNESS_ROOT)
+	docker build \
+	  --build-arg HOST_UID=$(HOST_UID) \
+	  --build-arg HOST_GID=$(HOST_GID) \
+	  -f $(HARNESS_ROOT)/env/Dockerfile \
+	  -t $(IMAGE) $(HARNESS_ROOT)
 
 # Build the image only if it isn't present locally.
 ensure-image:
@@ -128,6 +140,11 @@ run: init-check ensure-up
 
 shell: ensure-up
 	$(COMPOSE) -f $(COMPOSE_FILE) exec -w /work dev bash
+
+# Escape hatch for operations that require root (apt-get install, chown
+# adjustments, etc.). Prefer plain `make shell` + `sudo <cmd>` for one-offs.
+shell-root: ensure-up
+	$(COMPOSE) -f $(COMPOSE_FILE) exec --user root -w /work dev bash
 
 # ---------------------------------------------------------------------------
 # CI — single entry point for automation.

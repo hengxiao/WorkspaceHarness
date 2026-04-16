@@ -79,8 +79,18 @@ class TestRunBootstrap:
         assert "python3-dev" in df, "default python runtime_block should be rendered"
         assert "stdin_open: true" in compose
         assert "tty: true" in compose
-        assert "harness-home:/root" in compose, "$HOME persistence volume should be mounted"
+        assert "harness-home:/home/harness" in compose, (
+            "$HOME persistence volume should be mounted at the non-root user's $HOME"
+        )
         assert "\nvolumes:\n" in compose, "top-level volumes declaration required for named volume"
+
+        # Non-root user is created and used.
+        assert "ARG HOST_UID=" in df, "Dockerfile must accept HOST_UID build arg"
+        assert "ARG HOST_GID=" in df, "Dockerfile must accept HOST_GID build arg"
+        assert "useradd" in df and "harness" in df, (
+            "Dockerfile must create the harness user"
+        )
+        assert "USER harness" in df, "Dockerfile must switch to the non-root user"
 
     def test_custom_runtime_block_overrides_default(self, harness_root: Path, write_harness_yml, monkeypatch):
         write_harness_yml({
