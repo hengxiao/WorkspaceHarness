@@ -14,9 +14,27 @@ def _command_matches(pattern: str, command: str) -> bool:
 
 
 def _path_matches(pattern: str, path: str) -> bool:
-    # fnmatch handles *, ?, [], but not **; expand "**" to "*" for shallow matching.
-    p = pattern.replace("/**/", "/*/").replace("/**", "/*").replace("**/", "*/")
-    return fnmatch.fnmatchcase(path, p) or fnmatch.fnmatchcase(path, pattern.replace("**", "*"))
+    """Match a path against a glob pattern, with best-effort ** support.
+
+    fnmatch handles *, ?, [], but not **. We try several shapes:
+      - "**/X" also matches "X" at the root (policy-relevant for files like .env)
+      - "X/**" also matches "X" itself (dir deny rule also catches the dir itself)
+      - "**" is collapsed to "*" for shallow matching
+    """
+    candidates = {
+        pattern,
+        pattern.replace("/**/", "/*/"),
+        pattern.replace("/**", "/*"),
+        pattern.replace("**/", "*/"),
+        pattern.replace("**", "*"),
+    }
+    # "**/X" also needs to match "X" at the root (no leading path).
+    if pattern.startswith("**/"):
+        candidates.add(pattern[3:])
+    # "X/**" also matches X itself.
+    if pattern.endswith("/**"):
+        candidates.add(pattern[:-3])
+    return any(fnmatch.fnmatchcase(path, p) for p in candidates)
 
 
 def check_command(command: str) -> list[str]:

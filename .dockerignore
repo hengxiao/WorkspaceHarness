@@ -1,0 +1,48 @@
+# Docker build context excludes — the Dockerfile only needs cli/.
+# Everything else is either harness state (mutable, not baked into the image)
+# or submodule content (mounted at runtime via docker-compose, not COPY'd).
+
+# Version control
+.git
+.gitignore
+.gitmodules
+
+# Harness state and generated artifacts
+.harness/
+
+# Wrapped submodules — mounted at /work at runtime, never baked in.
+projects/
+
+# Context / docs — read from the mounted workspace, not baked in.
+context/
+.spec/
+skills/
+
+# Agent config — mounted, not baked in.
+agent/
+
+# CI config — not needed inside the image.
+.github/
+
+# Editor / OS junk
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+
+# Python build artifacts (from developing the CLI locally)
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.venv
+**/*.egg-info
+
+# Node (in case anyone runs npm install at the harness root by mistake)
+**/node_modules
+
+# Dockerfile itself doesn't need to be in the build context
+env/Dockerfile.bak

@@ -127,8 +127,8 @@ def exec(target: str, project: str | None) -> None:
 # --------------------------------------------------------------------------- #
 @main.command()
 def report() -> None:
-    """Aggregate .harness/reports/ into report.md (M4 — currently a stub)."""
-    run_report()
+    """Aggregate .harness/reports/runs/ into report.md and status.json."""
+    sys.exit(run_report())
 
 
 @main.command()

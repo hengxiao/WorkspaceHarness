@@ -58,11 +58,16 @@ jobs:
         with:
           sarif_file: .harness/reports/lint/results.sarif
 
-      - name: Fail job if test or lint failed
+      - name: Fail job if overall status is not passed/not_configured
         if: always()
         run: |
-          test -f .harness/reports/status.json || { echo "no status.json"; exit 1; }
-          jq -e '.test == "passed" and .lint == "passed"' .harness/reports/status.json
+          test -f .harness/reports/status.json || { echo "::error::no status.json emitted"; exit 1; }
+          OVERALL=$(jq -r '.overall' .harness/reports/status.json)
+          echo "overall: $OVERALL"
+          case "$OVERALL" in
+            passed|not_configured) exit 0 ;;
+            *)                     exit 1 ;;
+          esac
 
   policy-check:
     runs-on: ubuntu-latest

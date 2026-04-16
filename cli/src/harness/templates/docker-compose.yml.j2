@@ -13,6 +13,10 @@ services:
     tty: true
     volumes:
       - ../:/work:cached
+      # Persist $HOME across `make down` / `make up` to retain tool caches
+      # (npm, cargo, playwright, pip, gradle, ...) without language-specific
+      # knowledge. `make reset` wipes it.
+      - harness-home:/root
     environment:
       - HARNESS_ROOT=/work
 {% if services %}
@@ -48,6 +52,9 @@ services:
 {% endif %}
 
 {% endfor %}
+
+volumes:
+  harness-home:
 
 # HARNESS:KEEP:BEGIN extra-services
 # Declare additional services here.

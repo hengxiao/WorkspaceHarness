@@ -119,31 +119,65 @@ For each pulled project, do a **read-only** scan of its tree and write findings 
 
 ### Detection table — derive facts from files, not docs
 
+Manifests answer "what toolchain?". Lock files answer "how should deps be installed?". **When a lock file is present, prefer the locked/frozen install command** — it pins exact versions and is the correct choice for reproducible CI builds.
+
+| Manifest | Lock file | `deps` command (prefer locked) | Other inferences |
+| --- | --- | --- | --- |
+| `package.json` | `package-lock.json` | `npm ci` (not `npm install`) | language=node; scripts.test for test cmd |
+| `package.json` | `pnpm-lock.yaml` | `pnpm install --frozen-lockfile` | pnpm workspace |
+| `package.json` | `yarn.lock` | `yarn install --frozen-lockfile` | yarn classic/berry |
+| `pyproject.toml` | `poetry.lock` | `poetry install --no-interaction` | language=python |
+| `pyproject.toml` | `uv.lock` | `uv sync --frozen` | language=python (uv) |
+| `pyproject.toml` | `pdm.lock` | `pdm install --frozen-lockfile` | language=python (pdm) |
+| `requirements.txt` | `requirements.lock` / `*.lock` | `pip install -r requirements.lock` | language=python (pip) |
+| `Pipfile` | `Pipfile.lock` | `pipenv sync` | language=python (pipenv) |
+| `Cargo.toml` | `Cargo.lock` | `cargo fetch --locked` | language=rust; test=`cargo test --locked` |
+| `go.mod` | `go.sum` | `go mod download` (go.sum is used automatically) | language=go |
+| `Gemfile` | `Gemfile.lock` | `bundle install --deployment` or `bundle config frozen 1 && bundle install` | language=ruby |
+| `mix.exs` | `mix.lock` | `mix deps.get` (reads mix.lock) | language=elixir |
+| `composer.json` | `composer.lock` | `composer install --no-interaction` | language=php |
+| `pom.xml` / `build.gradle` | — | `mvn dependency:go-offline` / `gradle dependencies` | language=java |
+
+Other orthogonal signals:
+
 | File present | Infer |
 | --- | --- |
-| `package.json` | language=node; deps=`npm install`; read `scripts.test` for test cmd |
-| `pyproject.toml` / `setup.py` / `requirements.txt` | language=python; deps from tool (`pip install`, `uv sync`, `poetry install`) |
-| `Cargo.toml` | language=rust; deps=`cargo fetch`; test=`cargo test` |
-| `go.mod` | language=go; deps=`go mod download`; test=`go test ./...` |
-| `pom.xml` / `build.gradle` | language=java; deps/build from maven/gradle |
-| `Gemfile` | language=ruby; deps=`bundle install` |
 | `Makefile` / `Justfile` / `Taskfile.yml` | check for `test`, `build`, `lint` targets |
 | `docker-compose.yml` | service dependencies (DB, cache, etc.) |
 | `.github/workflows/*.yml` | CI commands — often the most reliable source of build/test/lint |
 | `playwright.config.*` / `jest.config.*` / `pytest.ini` / `.rspec` | test framework and runner |
 | `.eslintrc*` / `ruff.toml` / `.golangci.yml` / `clippy.toml` | linter |
 
+**Lock-file rule of thumb:** if the lock file is checked in, use the locked install command. If it's gitignored (uncommon), use the unlocked one. Never use an unlocked command when a lock file exists — that can silently upgrade dependencies and hide bugs.
+
 ### Derive commands
 
 From the detection, construct the `commands:` block for `harness.yml`:
 
 - **`deps`**: install dependencies (e.g. `npm install`, `pip install -e .`, `cargo fetch`)
-- **`build`**: produce artifacts (e.g. `npm run build`, `cargo build`). If no build step, set to `echo "no build step"`.
+- **`build`**: produce artifacts (e.g. `npm run build`, `cargo build`). **Omit** if the project has no build step — `harness exec build` will report "not configured" (exit 78).
 - **`test`**: run the test suite (e.g. `npm test`, `pytest`, `cargo test`)
-- **`lint`**: run static checks. If none detected, set to `echo "no linter configured"` and note this as a gap in the handoff.
+- **`lint`**: run static checks. **Omit** if no linter is configured for the project. Do NOT use `echo 'no linter configured'` — that exits 0 and falsely reports a pass. An omitted command returns `EXIT_NOT_CONFIGURED` (exit 78), which the report pipeline treats as "not applicable".
 - **`run`**: start the service for manual testing (e.g. `npm start`, `node serve.js`)
 
-**Do NOT copy test counts, coverage numbers, or other volatile facts from README files.** Those rot. The harness derives them at runtime via `make test`.
+**Omit, don't stub.** When a target doesn't apply to a project, leave the key out of the `commands:` block entirely. The CLI surfaces the gap explicitly; silent `echo ... && true` stubs hide real configuration debt.
+
+### Forbidden facts in `overview.md`
+
+READMEs rot, but `overview.md` sits next to live code. Copying a stale number there gives both humans and future agents false confidence. The following **must not** be transcribed from docs — they are either derived at runtime by the harness or omitted entirely:
+
+| Fact | Why it's forbidden | Where it comes from instead |
+| --- | --- | --- |
+| Test count ("101 tests", "1,247 tests") | Drifts with every PR | `make test` → `.harness/reports/runs/*.json` |
+| Coverage percentage | Same | A coverage command in `commands:` → reports |
+| Build-time benchmarks | Machine-dependent anyway | Not reported |
+| Dependency counts ("depends on 142 packages") | Drifts with every lockfile change | `make deps` output |
+| "Last released on …" or version numbers | Stored in `NEWS`/`CHANGELOG` | Link, don't copy |
+| Specific CI matrix sizes ("7 OS × 2 build systems = 14 jobs") | Changes with CI edits | Link to the workflow |
+
+**What overview.md SHOULD contain:** purpose, language/toolchain family, how it's built (commands, not metrics), how it's tested (framework, not counts), service dependencies, notable directories, open questions.
+
+**Rule of thumb:** if a `grep -c` or a `find | wc -l` would give a different answer in six months, leave it out.
 
 Write `context/upstream/<name>/overview.md` with frontmatter + body sections.
 

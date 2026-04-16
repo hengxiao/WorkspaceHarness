@@ -16,12 +16,15 @@ COMPOSE := $(shell docker compose version >/dev/null 2>&1 \
              && echo "docker compose" \
              || echo "docker-compose")
 
+IMAGE := harness-dev
+
 .PHONY: help \
         bootstrap reindex report \
+        image image-force \
         deps build test lint run \
         shell up down reset \
         ctx-validate policy-check \
-        ci init-check ensure-up
+        ci init-check ensure-up ensure-image
 
 help:
 	@echo "Workspace Harness — targets"
@@ -39,6 +42,8 @@ help:
 	@echo "    run            Start the wrapped service for manual testing"
 	@echo ""
 	@echo "  Environment:"
+	@echo "    image          Build the dev image (only if missing)"
+	@echo "    image-force    Rebuild the dev image unconditionally (use after CLI changes)"
 	@echo "    shell          Open a shell inside the dev container"
 	@echo "    up             Start the dev container (persistent)"
 	@echo "    down           Stop all containers"
@@ -57,6 +62,8 @@ help:
 
 bootstrap: init-check
 	harness bootstrap
+	@echo ""
+	@echo "Note: run 'make image-force' to rebuild the dev image if Dockerfile changed."
 
 reindex: init-check
 	harness ctx reindex
@@ -72,7 +79,20 @@ report:
 # survive across targets. `make down` tears it down.
 # ---------------------------------------------------------------------------
 
-up: init-check
+# Build the dev image only if it doesn't exist yet.
+image: ensure-image
+
+# Always rebuild the dev image. Use after changing cli/, the Dockerfile, or
+# runtime_blocks in harness.yml.
+image-force:
+	docker build -f $(HARNESS_ROOT)/env/Dockerfile -t $(IMAGE) $(HARNESS_ROOT)
+
+# Build the image only if it isn't present locally.
+ensure-image:
+	@docker image inspect $(IMAGE) >/dev/null 2>&1 \
+	  || $(MAKE) -f $(HARNESS_ROOT)/env/Makefile image-force
+
+up: init-check ensure-image
 	$(COMPOSE) -f $(COMPOSE_FILE) up -d dev
 
 down:
@@ -82,7 +102,7 @@ reset:
 	$(COMPOSE) -f $(COMPOSE_FILE) down -v
 
 # Auto-start the dev container if it isn't running.
-ensure-up:
+ensure-up: ensure-image
 	@$(COMPOSE) -f $(COMPOSE_FILE) ps --services --filter "status=running" 2>/dev/null \
 	  | grep -q '^dev$$' \
 	  || $(COMPOSE) -f $(COMPOSE_FILE) up -d dev
