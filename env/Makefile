@@ -92,19 +92,19 @@ ensure-up:
 # ---------------------------------------------------------------------------
 
 deps: init-check ensure-up
-	$(COMPOSE) -f $(COMPOSE_FILE) exec -w /work dev harness exec deps
+	$(COMPOSE) -f $(COMPOSE_FILE) exec -T -w /work dev harness exec deps
 
 build: init-check ensure-up
-	$(COMPOSE) -f $(COMPOSE_FILE) exec -w /work dev harness exec build
+	$(COMPOSE) -f $(COMPOSE_FILE) exec -T -w /work dev harness exec build
 
 test: init-check ensure-up
-	$(COMPOSE) -f $(COMPOSE_FILE) exec -w /work dev harness exec test
+	$(COMPOSE) -f $(COMPOSE_FILE) exec -T -w /work dev harness exec test
 
 lint: init-check ensure-up
-	$(COMPOSE) -f $(COMPOSE_FILE) exec -w /work dev harness exec lint
+	$(COMPOSE) -f $(COMPOSE_FILE) exec -T -w /work dev harness exec lint
 
 run: init-check ensure-up
-	$(COMPOSE) -f $(COMPOSE_FILE) exec -w /work dev harness exec run
+	$(COMPOSE) -f $(COMPOSE_FILE) exec -T -w /work dev harness exec run
 
 shell: ensure-up
 	$(COMPOSE) -f $(COMPOSE_FILE) exec -w /work dev bash
@@ -116,7 +116,7 @@ shell: ensure-up
 
 ci: init-check
 	$(COMPOSE) -f $(COMPOSE_FILE) up -d dev
-	$(COMPOSE) -f $(COMPOSE_FILE) exec -w /work dev \
+	$(COMPOSE) -f $(COMPOSE_FILE) exec -T -w /work dev \
 	  bash -lc "harness exec deps && harness exec build && harness exec test && harness exec lint" ; \
 	STATUS=$$? ; \
 	harness report || true ; \

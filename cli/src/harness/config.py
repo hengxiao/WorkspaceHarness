@@ -159,17 +159,6 @@ class HarnessConfig:
             runtime_blocks=runtime_blocks,
         )
 
-
-def _normalize_runtime(runtime: dict[str, Any]) -> dict[str, Any]:
-    """Normalize the language list inside a runtime block."""
-    if not runtime:
-        return runtime
-    langs = runtime.get("language") or []
-    if isinstance(langs, str):
-        langs = [langs]
-    runtime["language"] = normalize_languages(langs)
-    return runtime
-
     def project(self, name: str | None = None) -> Project:
         if not self.projects:
             raise ValueError("No projects declared in harness.yml.")
@@ -183,6 +172,17 @@ def _normalize_runtime(runtime: dict[str, Any]) -> dict[str, Any]:
             if p.name == name:
                 return p
         raise KeyError(f"No project named {name!r} in harness.yml.")
+
+
+def _normalize_runtime(runtime: dict[str, Any]) -> dict[str, Any]:
+    """Normalize the language list inside a runtime block."""
+    if not runtime:
+        return runtime
+    langs = runtime.get("language") or []
+    if isinstance(langs, str):
+        langs = [langs]
+    runtime["language"] = normalize_languages(langs)
+    return runtime
 
 
 @dataclass
