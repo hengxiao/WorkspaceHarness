@@ -1,0 +1,56 @@
+version: 1
+
+harness:
+  purpose: "Development and testing harness for QuestionnaireHelper — a client-side YAML-driven questionnaire app"
+  initialized_at: "2026-04-15T00:00:00Z"
+
+env:
+  base_image: "ubuntu:24.04"
+
+projects:
+  - name: questionnaire-helper
+    path: projects/questionnaire-helper
+    submodule:
+      url: https://github.com/hengxiao/QuestionnaireHelper.git
+      ref: main
+    writable: true
+    runtime:
+      language: [javascript]
+      node: { version: "20" }
+    commands:
+      build: "npm install && npx playwright install chromium"
+      test: "npx playwright test"
+      lint: "echo 'no linter configured — add one to harness.yml'"
+      run: "node serve.js 4001"
+
+services: []
+
+context:
+  ingest:
+    - source: "{project.path}/README.md"
+      into: "context/upstream/{project.name}/README.md"
+      tags: [docs, upstream]
+    - source: "{project.path}/AGENTS.md"
+      into: "context/upstream/{project.name}/AGENTS.md"
+      tags: [docs, upstream, schema]
+    - source: "{project.path}/CLAUDE.md"
+      into: "context/upstream/{project.name}/CLAUDE.md"
+      tags: [docs, upstream]
+
+agent:
+  policy: agent/policies.md
+  allow:
+    - "make test"
+    - "make lint"
+    - "make build"
+    - "make shell"
+    - "make up"
+    - "make down"
+    - "make reindex"
+    - "make report"
+    - "git commit"
+  deny:
+    - "git push origin main"
+    - "make deploy"
+  require_human_for:
+    - dependency_upgrades_major

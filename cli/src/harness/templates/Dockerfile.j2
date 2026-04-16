@@ -20,7 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       python3-dev \
       && rm -rf /var/lib/apt/lists/*
 {% endif %}
-{% if "node" in project.languages or "typescript" in project.languages %}
+{% if "node" in project.languages or "typescript" in project.languages or "javascript" in project.languages %}
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \
     npm install -g pnpm@latest && \
