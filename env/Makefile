@@ -1,25 +1,27 @@
 # Workspace Harness — standardized make contract.
 #
 # Every harness exposes the same targets regardless of what the wrapped
-# project actually uses (cargo, pnpm, pytest, bazel, ...). Targets here
-# delegate to the `harness` CLI, which reads `harness.yml` and dispatches
-# to the right per-project commands inside the dev container.
+# project actually uses. Targets delegate to the `harness` CLI inside the
+# dev container. The container persists between targets (via `up`) so
+# installed dependencies are not lost between `make deps` and `make test`.
 #
 # This Makefile is INTENTIONALLY static: it does not need to be regenerated
 # by `make bootstrap`. The CLI handles state and per-project differences.
 
-# Run targets from the harness repo root:
-#     make -f env/Makefile <target>
-# or symlink env/Makefile to ./Makefile after init.
-
 HARNESS_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)
+COMPOSE_FILE := $(HARNESS_ROOT)/env/docker-compose.yml
+
+# Auto-detect docker compose v2 (plugin) vs v1 (standalone).
+COMPOSE := $(shell docker compose version >/dev/null 2>&1 \
+             && echo "docker compose" \
+             || echo "docker-compose")
 
 .PHONY: help \
         bootstrap reindex report \
-        build test lint run \
+        deps build test lint run \
         shell up down reset \
         ctx-validate policy-check \
-        init-check
+        ci init-check ensure-up
 
 help:
 	@echo "Workspace Harness — targets"
@@ -29,7 +31,8 @@ help:
 	@echo "    reindex        Rebuild context/index.json"
 	@echo "    report         Aggregate .harness/reports/ into report.md"
 	@echo ""
-	@echo "  Project work (runs inside the dev container):"
+	@echo "  Project work (runs inside the persistent dev container):"
+	@echo "    deps           Install project dependencies"
 	@echo "    build          Build wrapped project artifacts"
 	@echo "    test           Run the full test suite (emits .harness/reports/test/)"
 	@echo "    lint           Run linters (emits .harness/reports/lint/)"
@@ -37,9 +40,12 @@ help:
 	@echo ""
 	@echo "  Environment:"
 	@echo "    shell          Open a shell inside the dev container"
-	@echo "    up             Bring up the service stack"
-	@echo "    down           Stop the service stack"
-	@echo "    reset          Stop the stack and wipe its volumes"
+	@echo "    up             Start the dev container (persistent)"
+	@echo "    down           Stop all containers"
+	@echo "    reset          Stop containers and wipe volumes"
+	@echo ""
+	@echo "  CI (one-shot):"
+	@echo "    ci             up → deps → build → test → lint → report → down"
 	@echo ""
 	@echo "  Validation:"
 	@echo "    ctx-validate   Check context/ frontmatter and index freshness"
@@ -59,36 +65,63 @@ report:
 	harness report
 
 # ---------------------------------------------------------------------------
-# Project work — all run inside the dev container.
+# Environment — persistent dev container.
+#
+# `make up` starts the dev service in the background. All work targets use
+# `exec` into the running container so installed deps, caches, and state
+# survive across targets. `make down` tears it down.
 # ---------------------------------------------------------------------------
-
-build: init-check
-	docker compose -f env/docker-compose.yml run --rm dev harness exec build
-
-test: init-check
-	docker compose -f env/docker-compose.yml run --rm dev harness exec test
-
-lint: init-check
-	docker compose -f env/docker-compose.yml run --rm dev harness exec lint
-
-run: init-check
-	docker compose -f env/docker-compose.yml run --rm --service-ports dev harness exec run
-
-# ---------------------------------------------------------------------------
-# Environment
-# ---------------------------------------------------------------------------
-
-shell: init-check
-	docker compose -f env/docker-compose.yml run --rm dev bash
 
 up: init-check
-	docker compose -f env/docker-compose.yml up -d
+	$(COMPOSE) -f $(COMPOSE_FILE) up -d dev
 
 down:
-	docker compose -f env/docker-compose.yml down
+	$(COMPOSE) -f $(COMPOSE_FILE) down
 
 reset:
-	docker compose -f env/docker-compose.yml down -v
+	$(COMPOSE) -f $(COMPOSE_FILE) down -v
+
+# Auto-start the dev container if it isn't running.
+ensure-up:
+	@$(COMPOSE) -f $(COMPOSE_FILE) ps --services --filter "status=running" 2>/dev/null \
+	  | grep -q '^dev$$' \
+	  || $(COMPOSE) -f $(COMPOSE_FILE) up -d dev
+
+# ---------------------------------------------------------------------------
+# Project work — all exec into the persistent dev container.
+# ---------------------------------------------------------------------------
+
+deps: init-check ensure-up
+	$(COMPOSE) -f $(COMPOSE_FILE) exec -w /work dev harness exec deps
+
+build: init-check ensure-up
+	$(COMPOSE) -f $(COMPOSE_FILE) exec -w /work dev harness exec build
+
+test: init-check ensure-up
+	$(COMPOSE) -f $(COMPOSE_FILE) exec -w /work dev harness exec test
+
+lint: init-check ensure-up
+	$(COMPOSE) -f $(COMPOSE_FILE) exec -w /work dev harness exec lint
+
+run: init-check ensure-up
+	$(COMPOSE) -f $(COMPOSE_FILE) exec -w /work dev harness exec run
+
+shell: ensure-up
+	$(COMPOSE) -f $(COMPOSE_FILE) exec -w /work dev bash
+
+# ---------------------------------------------------------------------------
+# CI — single entry point for automation.
+# Brings up the stack, runs everything, tears it down regardless of outcome.
+# ---------------------------------------------------------------------------
+
+ci: init-check
+	$(COMPOSE) -f $(COMPOSE_FILE) up -d dev
+	$(COMPOSE) -f $(COMPOSE_FILE) exec -w /work dev \
+	  bash -lc "harness exec deps && harness exec build && harness exec test && harness exec lint" ; \
+	STATUS=$$? ; \
+	harness report || true ; \
+	$(COMPOSE) -f $(COMPOSE_FILE) down ; \
+	exit $$STATUS
 
 # ---------------------------------------------------------------------------
 # Validation
@@ -101,7 +134,7 @@ policy-check:
 	harness policy check --staged
 
 # ---------------------------------------------------------------------------
-# Internal — guards against running project targets on an uninitialized harness.
+# Internal
 # ---------------------------------------------------------------------------
 
 init-check:

@@ -137,10 +137,24 @@ projects:                          # one or more wrapped submodules
       ref: main
     writable: true                 # may agents commit changes back to its repo?
 
-runtime:
-  language: [python, typescript] # primary toolchains
-  python: { version: "3.12" }
-  node:   { version: "20" }
+    runtime:
+      language: [python, typescript] # any common name; CLI normalizes internally
+      python: { version: "3.12" }
+      node:   { version: "20" }
+    commands:                        # mapped to standard make targets
+      deps:  "uv sync && pnpm install"         # install dependencies (persists in container)
+      build: "uv run build && pnpm build"       # produce artifacts
+      test:  "uv run pytest && pnpm test"
+      lint:  "uv run ruff check && pnpm lint"
+      run:   "uv run uvicorn app:main --reload"
+
+env:
+  base_image: "ubuntu:24.04"
+  runtime_blocks:                # optional: override default install for a language
+    node: |                      # example: pin a specific Node version
+      RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
+          apt-get install -y --no-install-recommends nodejs && \
+          rm -rf /var/lib/apt/lists/*
 
 services:                        # docker-compose service stack
   - name: postgres
@@ -148,12 +162,6 @@ services:                        # docker-compose service stack
     ports: ["5432:5432"]
   - name: redis
     image: redis:7
-
-commands:                        # mapped to standard make targets
-  build: "uv sync && pnpm install"
-  test:  "uv run pytest && pnpm test"
-  lint:  "uv run ruff check && pnpm lint"
-  run:   "uv run uvicorn app:main --reload"
 
 context:
   ingest:                                   # READS submodule files; writes only to context/upstream/
@@ -244,21 +252,29 @@ The `dev` image is what `make shell` enters and what CI uses. Same image, same b
 
 **Service stack** — `docker-compose.yml` is generated from `services:`. A `make up` brings it up; `make down` tears it down. A `make reset` wipes volumes for a clean state.
 
-**Makefile contract** — every harness exposes the same targets regardless of underlying tooling:
+**Makefile contract** — every harness exposes the same targets regardless of underlying tooling. The Makefile auto-detects `docker compose` (v2 plugin) vs `docker-compose` (v1 standalone).
+
+**Persistent dev container.** Work targets (`deps`, `build`, `test`, `lint`, `run`, `shell`) use `exec` into a persistent container started by `make up`. This means installed dependencies survive across targets — `make deps` followed by `make test` works without re-installing. `make down` tears down the container.
 
 | Target | Required | Notes |
 | --- | --- | --- |
-| `build` | yes | Builds artifacts inside the dev container |
-| `test` | yes | Runs the full suite; emits JUnit XML to `.harness/reports/test/` |
-| `lint` | yes | Runs linters; emits SARIF to `.harness/reports/lint/` |
-| `shell` | yes | `docker compose run --rm dev bash` |
-| `up` / `down` / `reset` | yes | Service stack lifecycle |
-| `run` | optional | Starts the wrapped service for manual testing |
-| `bootstrap` | yes | Regenerates env files from `harness.yml` |
-| `reindex` | yes | Rebuilds `context/index.json` |
-| `report` | yes | Aggregates `.harness/reports/` into a single Markdown summary |
+| `deps` | yes | Install project dependencies (npm install, pip install, cargo fetch, ...) |
+| `build` | yes | Build artifacts inside the dev container |
+| `test` | yes | Run the full suite; emits JUnit XML to `.harness/reports/test/` |
+| `lint` | yes | Run linters; emits SARIF to `.harness/reports/lint/` |
+| `shell` | yes | Open a shell inside the persistent dev container |
+| `up` / `down` / `reset` | yes | Service stack lifecycle (persistent container) |
+| `run` | optional | Start the wrapped service for manual testing |
+| `bootstrap` | yes | Regenerate env files from `harness.yml` |
+| `reindex` | yes | Rebuild `context/index.json` |
+| `report` | yes | Aggregate `.harness/reports/` into a single Markdown summary |
+| `ci` | yes | One-shot: up → deps → build → test → lint → report → down |
 
 Reports under `.harness/reports/` are the canonical artifacts CI uploads — same format locally and in CI, so agents can train on one shape.
+
+**Language normalization.** Users declare languages in `harness.yml` using any common name (`javascript`, `js`, `typescript`, `ts`, `python`, `py`, `golang`, `go`, `rust`, `rs`). The CLI normalizes them to canonical runtime names (`node`, `python`, `go`, `rust`) so templates and downstream code work consistently.
+
+**Data-driven runtime blocks.** The Dockerfile template renders install instructions from a `runtime_blocks` dict (keyed by canonical language). Defaults are built into the CLI for common languages. Users can override or add new ones via `env.runtime_blocks:` in `harness.yml` — no template editing needed.
 
 ### 6.3 Skills (`skills/`)
 
@@ -450,6 +466,7 @@ The line between "harness-owned" and "submodule-owned" is the `projects/` bounda
 - **M0 — Spec (this doc).** ✅
 - **M0.5 — Initialization skill + entry points.** ✅
 - **M0.7 — Generic skeleton.** ✅ Directory tree, standard `Makefile`, skill stubs, agent policies (md + yaml), `harness` CLI scaffold (Click + Jinja2), bash hooks, fallback `env/Dockerfile` + `docker-compose.yml`, CI workflow stub.
+- **M0.8 — Post-trial enhancements.** ✅ Language normalization + data-driven runtime blocks, compose v1/v2 detection, persistent dev container (`up`→`exec` pattern), `make deps`/`make ci` targets, init skill fast-path + complexity scaling.
 - **M1 — Bootstrap.** `harness.yml` schema + `make bootstrap` generating `env/` for a Python sample repo.
 - **M2 — Context.** Frontmatter convention, FTS5 index, `harness ctx` CLI.
 - **M3 — Skills + Agent hooks.** Standard skills set, `pre-commit.sh` policy gate.

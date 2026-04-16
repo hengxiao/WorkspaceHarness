@@ -115,10 +115,10 @@ def policy_check(command: str | None, staged: bool) -> None:
 # exec
 # --------------------------------------------------------------------------- #
 @main.command()
-@click.argument("target", type=click.Choice(["build", "test", "lint", "run"]))
+@click.argument("target", type=click.Choice(["deps", "build", "test", "lint", "run"]))
 @click.option("--project", default=None, help="Project name (required if multiple).")
 def exec(target: str, project: str | None) -> None:
-    """Run a project's per-target command (build/test/lint/run) inside the dev container."""
+    """Run a project command (deps/build/test/lint/run) from harness.yml."""
     sys.exit(run_exec(target=target, project_name=project))
 
 

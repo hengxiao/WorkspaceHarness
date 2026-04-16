@@ -32,22 +32,11 @@ jobs:
           fi
 
       - name: Build dev image
-        run: docker build -t harness-dev -f env/Dockerfile env/
+        run: docker build -t harness-dev -f env/Dockerfile .
 
-      - name: Build
-        run: make -f env/Makefile build
-
-      - name: Lint
-        run: make -f env/Makefile lint
-        continue-on-error: true   # report but don't fail the job here; report step decides
-
-      - name: Test
-        run: make -f env/Makefile test
+      - name: Run CI (deps → build → test → lint → report)
+        run: make -f env/Makefile ci
         continue-on-error: true
-
-      - name: Aggregate report
-        if: always()
-        run: make -f env/Makefile report
 
       - name: Publish report to job summary
         if: always()

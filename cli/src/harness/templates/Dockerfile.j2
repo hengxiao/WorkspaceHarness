@@ -13,28 +13,12 @@ COPY cli/ /opt/harness-cli/
 RUN pip install --break-system-packages /opt/harness-cli
 
 # --- per-project runtime layers ---------------------------------------------
-{% for project in projects %}
-# {{ project.name }} ({{ project.languages | join(", ") if project.languages else "no language declared" }})
-{% if "python" in project.languages %}
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      python3-dev \
-      && rm -rf /var/lib/apt/lists/*
-{% endif %}
-{% if "node" in project.languages or "typescript" in project.languages %}
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y --no-install-recommends nodejs && \
-    npm install -g pnpm@latest && \
-    rm -rf /var/lib/apt/lists/*
-{% endif %}
-{% if "go" in project.languages %}
-RUN curl -fsSL https://go.dev/dl/go1.22.0.linux-amd64.tar.gz \
-      | tar -C /usr/local -xz
-ENV PATH=$PATH:/usr/local/go/bin
-{% endif %}
-{% if "rust" in project.languages %}
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-      | sh -s -- -y --default-toolchain stable
-ENV PATH=/root/.cargo/bin:$PATH
+# Rendered from runtime_blocks (data-driven). Override or add new runtimes
+# via env.runtime_blocks in harness.yml.
+{% for lang in all_languages %}
+{% if lang in runtime_blocks %}
+# {{ lang }}
+{{ runtime_blocks[lang] }}
 {% endif %}
 {% endfor %}
 

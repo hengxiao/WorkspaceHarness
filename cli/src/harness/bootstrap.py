@@ -75,6 +75,18 @@ def _render(template_name: str, context: dict) -> str:
     return _template_env().get_template(template_name).render(**context)
 
 
+def _collect_all_languages(projects: list) -> list[str]:
+    """Deduplicated, ordered list of all canonical languages across projects."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for p in projects:
+        for lang in (p.runtime.get("language") or []) if p.runtime else []:
+            if lang not in seen:
+                seen.add(lang)
+                result.append(lang)
+    return result
+
+
 def run_bootstrap(force: bool = False) -> list[Path]:
     """Render env/Dockerfile and env/docker-compose.yml. Returns paths written."""
     cfg = HarnessConfig.load()
@@ -85,6 +97,8 @@ def run_bootstrap(force: bool = False) -> list[Path]:
         "base_image": cfg.base_image,
         "projects": [_project_template_view(p) for p in cfg.projects],
         "services": cfg.services,
+        "runtime_blocks": cfg.runtime_blocks,
+        "all_languages": _collect_all_languages(cfg.projects),
     }
 
     written: list[Path] = []
@@ -103,9 +117,10 @@ def run_bootstrap(force: bool = False) -> list[Path]:
 
 def _project_template_view(project) -> dict:
     """Shape a Project for use in Jinja templates."""
+    langs = (project.runtime.get("language") or []) if project.runtime else []
     return {
         "name": project.name,
         "path": project.path,
         "runtime": project.runtime or {},
-        "languages": (project.runtime.get("language") or []) if project.runtime else [],
+        "languages": langs,
     }

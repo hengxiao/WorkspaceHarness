@@ -7,6 +7,10 @@ services:
       dockerfile: env/Dockerfile
     image: harness-dev
     working_dir: /work
+    # Keep the container alive for `make up` + `make exec` pattern.
+    # Dependencies installed via `make deps` persist until `make down`.
+    stdin_open: true
+    tty: true
     volumes:
       - ../:/work:cached
     environment:

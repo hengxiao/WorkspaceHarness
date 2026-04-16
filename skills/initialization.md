@@ -10,12 +10,55 @@ required_when: "harness.yml is missing OR .harness/state.json.status != 'initial
 
 Use this skill the very first time an agent opens a workspace-harness, or whenever a new submodule is being added. It is the on-ramp from an empty harness to a usable one.
 
+## Operating Modes
+
+### Interactive (default)
+
+The agent walks the user through discovery, asking questions at each phase. Use this when the user opens a blank harness and says something general like "set up this harness" or "initialize".
+
+### Fast-path (auto-detect)
+
+When the user provides enough up front — typically a repo URL and "initialize with this" — skip the conversational phases and auto-detect as much as possible:
+
+1. Infer project **name** from the URL (last path segment, lowercased, hyphens for separators).
+2. Detect **default branch** via `git ls-remote --symref <url> HEAD`.
+3. Default to **writable: true** (the user is providing their own repo).
+4. Derive **purpose** from the submodule's `README.md` first paragraph after cloning.
+5. Detect **language/runtime** from manifest files (see Phase 3 detection table).
+6. Detect **deps / build / test / lint / run** commands from manifests and scripts.
+7. Only prompt the user when something is genuinely ambiguous (see "When to prompt" below).
+
+**When to prompt in fast-path mode:**
+
+- Multiple conflicting build systems detected (e.g. both `Makefile` and `Justfile`).
+- No test runner detected at all.
+- Multiple language runtimes with no clear primary.
+- The user explicitly asked to be consulted ("prompt questions when needed").
+
+If the user said "continue all phases until done" or similar, treat ambiguity as a decision you make with a sensible default + a note in the handoff summary explaining the choice.
+
 ## Operating Principles
 
-1. **Ask, don't assume.** Initialization is a conversation. Every project, branch, design decision, and integration relationship comes from the user. Do not invent answers; do not pick defaults silently.
+1. **Infer first, ask second.** Try to detect everything from the codebase. Only prompt when detection is ambiguous or impossible.
 2. **Record after every phase.** Write to `.harness/state.json` and the relevant artifacts at the end of each phase, not at the end of the run. Initialization must be **resumable**.
 3. **Submodule isolation.** The only write to `projects/<name>/` permitted during initialization is `git submodule add`. All harness-side artifacts (state, context snapshots, derived skills) go into the harness tree. (See `.spec/design.md` Principle 1.)
 4. **Show the user what you wrote.** After each phase, print a one-line summary of what changed and where, so the user can correct course before the next phase.
+5. **Scale depth to complexity.** Simple projects (single repo, no backend, no services) get a streamlined flow. Complex projects (multi-service, shared infrastructure) get the full treatment.
+
+## Complexity Detection
+
+After Phase 2 (pull), assess complexity to decide which phases to run in full, abbreviate, or skip:
+
+| Signal | Low complexity | High complexity |
+| --- | --- | --- |
+| Number of projects | 1 | 2+ |
+| Backend/DB/services | none detected | docker-compose, DB config, API schemas |
+| Language count | 1 | 2+ across projects |
+| Existing CI config | simple or absent | multi-stage, matrix builds |
+
+**Low complexity** (all "low" signals): abbreviate Phases 4 & 5 — write a brief `context/architecture.md` from what's visible, skip the multi-round user interview. Note skipped areas in the handoff.
+
+**High complexity** (any "high" signal): run Phases 4 & 5 in full.
 
 ## Pre-flight
 
@@ -44,34 +87,19 @@ Before phase 0:
 
 ## Phase 1 — Discovery
 
-Have a short conversation with the user. Ask, in order:
+**Interactive mode:** Have a short conversation with the user. Ask, in order:
 
-1. **What is this harness for?** One sentence — e.g. *"Backend + iOS client for the AcmePay payments stack"*. Record as `harness_purpose`.
-2. **Which Git repositories do you work on inside this harness?** For each:
-   - Repository URL (SSH or HTTPS)
-   - Short name (used as the directory under `projects/`)
-   - Default branch to track (`main`, `develop`, etc.)
-   - Optional: a one-line purpose for that project
-3. **Read-only or contributable?** For each project, ask whether the user expects agents to commit changes back to that submodule's repo, or only read it.
+1. **What is this harness for?** One sentence.
+2. **Which Git repositories do you work on inside this harness?** For each: URL, short name, default branch, one-line purpose.
+3. **Read-only or contributable?** Per project.
 
-Record each as a pending entry under `projects[]` in state.json:
+**Fast-path mode:** The user already provided the URL(s). Infer name, branch, purpose, writable from the URL and defaults. Skip the conversation.
 
-```json
-{
-  "name": "my-service",
-  "url": "git@github.com:acme/my-service.git",
-  "branch": "main",
-  "purpose": "...",
-  "writable": true,
-  "status": "pending"
-}
-```
-
-Confirm the full list with the user before moving on. Update `current_phase` to `"submodule_pull"`.
+Record each as a pending entry under `projects[]` in state.json. Update `current_phase` to `"submodule_pull"`.
 
 ## Phase 2 — Pull Submodules
 
-For each `pending` project, in sequence (not in parallel — easier to recover from failures):
+For each `pending` project, in sequence:
 
 1. Run `git submodule add <url> projects/<name>`.
 2. Run `git -C projects/<name> checkout <branch>`.
@@ -79,14 +107,9 @@ For each `pending` project, in sequence (not in parallel — easier to recover f
 4. Update that project's `status` to `"pulled"` in state.json.
 5. Print: `Pulled <name> @ <branch> (<short-sha>)`.
 
-If a submodule fails to clone (auth, network, wrong URL), do NOT silently skip — surface the error to the user, ask whether to fix the URL or remove the entry, and update state.json accordingly.
+If a submodule fails to clone, surface the error — never silently skip.
 
-When all are pulled, commit the `.gitmodules` change in the harness repo:
-
-```
-git add .gitmodules projects/
-git commit -m "harness: add submodules <names>"
-```
+When all are pulled, commit the `.gitmodules` change in the harness repo.
 
 Update `current_phase` to `"per_project_analysis"`.
 
@@ -94,171 +117,109 @@ Update `current_phase` to `"per_project_analysis"`.
 
 For each pulled project, do a **read-only** scan of its tree and write findings into `context/upstream/<name>/overview.md` (in the harness tree — never inside the submodule).
 
-What to look at:
+### Detection table — derive facts from files, not docs
 
-- `README.md`, `CHANGELOG.md`, `LICENSE`
-- Build/dependency manifests: `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `pom.xml`, `build.gradle`, `Gemfile`, etc.
-- Container/orchestration: `Dockerfile`, `docker-compose.yml`, `Makefile`, `Justfile`, `Taskfile.yml`
-- Test config: `pytest.ini`, `jest.config.*`, `*_test.go` patterns
-- CI: `.github/workflows/`, `.gitlab-ci.yml`, etc.
-- Top-level directory structure (one level deep is usually enough)
+| File present | Infer |
+| --- | --- |
+| `package.json` | language=node; deps=`npm install`; read `scripts.test` for test cmd |
+| `pyproject.toml` / `setup.py` / `requirements.txt` | language=python; deps from tool (`pip install`, `uv sync`, `poetry install`) |
+| `Cargo.toml` | language=rust; deps=`cargo fetch`; test=`cargo test` |
+| `go.mod` | language=go; deps=`go mod download`; test=`go test ./...` |
+| `pom.xml` / `build.gradle` | language=java; deps/build from maven/gradle |
+| `Gemfile` | language=ruby; deps=`bundle install` |
+| `Makefile` / `Justfile` / `Taskfile.yml` | check for `test`, `build`, `lint` targets |
+| `docker-compose.yml` | service dependencies (DB, cache, etc.) |
+| `.github/workflows/*.yml` | CI commands — often the most reliable source of build/test/lint |
+| `playwright.config.*` / `jest.config.*` / `pytest.ini` / `.rspec` | test framework and runner |
+| `.eslintrc*` / `ruff.toml` / `.golangci.yml` / `clippy.toml` | linter |
 
-Write `context/upstream/<name>/overview.md` with frontmatter:
+### Derive commands
 
-```yaml
----
-title: <name> — overview
-tags: [upstream, overview, <language>]
-summary: <one-paragraph TL;DR>
-updated: <date>
-source: derived
-project: <name>
-project_ref: <commit sha at analysis time>
----
-```
+From the detection, construct the `commands:` block for `harness.yml`:
 
-Body sections to fill in: **Purpose**, **Language & Toolchain**, **How it's built**, **How it's tested**, **Service dependencies**, **Notable directories**, **Open questions for the user**.
+- **`deps`**: install dependencies (e.g. `npm install`, `pip install -e .`, `cargo fetch`)
+- **`build`**: produce artifacts (e.g. `npm run build`, `cargo build`). If no build step, set to `echo "no build step"`.
+- **`test`**: run the test suite (e.g. `npm test`, `pytest`, `cargo test`)
+- **`lint`**: run static checks. If none detected, set to `echo "no linter configured"` and note this as a gap in the handoff.
+- **`run`**: start the service for manual testing (e.g. `npm start`, `node serve.js`)
 
-Then **prompt the user** with the open questions you collected — anything you couldn't determine from the files. Examples:
+**Do NOT copy test counts, coverage numbers, or other volatile facts from README files.** Those rot. The harness derives them at runtime via `make test`.
 
-- "I see Django + Postgres. What database does production actually use?"
-- "There's a `Makefile`, but no `test` target. How do you run tests today?"
-- "I see two HTTP frameworks imported. Which is the real one?"
+Write `context/upstream/<name>/overview.md` with frontmatter + body sections.
 
-Capture answers back into `overview.md`. Update that project's `status` to `"analyzed"` in state.json.
+Then — **in interactive mode** — prompt the user with open questions you couldn't answer from the files. **In fast-path mode**, note unanswered questions in the overview's "Open questions" section and mention them in the handoff, but do not block on them.
 
 ## Phase 4 — Cross-Project Analysis
 
-Only if there is more than one project. Ask the user:
+**Skip entirely if single project with low complexity.** Write a brief `context/architecture.md` noting it's a single-project harness.
 
-1. **How do these projects relate?** (client/server, producer/consumer, library/app, monorepo split, ...)
-2. **Are there shared services?** (Postgres used by both? A single Redis? Same Kafka cluster?)
-3. **Which is the entry point** for someone debugging end-to-end?
-4. **Are there contracts between them?** (REST schema, protobuf, OpenAPI, GraphQL)
-5. **What's the local dev story today?** (Each runs standalone? Compose stack? Tilt? Skaffold?)
+**Run in full for multi-project or high-complexity harnesses.** Ask the user:
 
-Write the answers to `context/architecture.md` (harness-native, not under `upstream/`):
+1. How do these projects relate?
+2. Are there shared services?
+3. Which is the entry point for end-to-end debugging?
+4. Are there contracts between them? (OpenAPI, protobuf, GraphQL)
+5. What's the local dev story today?
 
-```yaml
----
-title: Cross-project architecture
-tags: [architecture, integration]
-summary: How the projects in this harness fit together.
-updated: <date>
-source: internal
----
-```
-
-If the user provides a diagram, save it next to the doc and link it.
+Write `context/architecture.md` with frontmatter.
 
 ## Phase 5 — Capture Design & Decision Context
 
-Ask the user about supporting material that lives outside the repos:
+**Abbreviate for low-complexity projects.** Ask one question: "Is there anything a new engineer always gets wrong here?" Capture the answer and move on.
 
-1. **Design docs / RFCs / ADRs** — links or paths. For each, ask whether to (a) link only, (b) ingest into `context/specs/design/`, or (c) summarize and store the summary.
-2. **Requirement specs** — same options, into `context/specs/requirements/`.
-3. **Bug-tracker references** — Linear/Jira/GitHub project URLs. Save as a reference doc in `context/internal/trackers.md`.
-4. **Dashboards & runbooks** — Grafana, oncall docs. Save as reference entries.
-5. **Past incidents / postmortems** worth knowing about. Capture summaries into `context/bugs/`.
-6. **Implicit knowledge** — ask: *"What's the one thing a new engineer always gets wrong here?"* and write the answer somewhere prominent (likely `skills/coding-style.md` or `context/internal/gotchas.md`).
+**Run in full for high-complexity harnesses.** Ask about:
 
-Each captured doc must have proper frontmatter (see `.spec/design.md` §6.1).
+1. Design docs / RFCs / ADRs
+2. Requirement specs
+3. Bug-tracker references
+4. Dashboards & runbooks
+5. Past incidents / postmortems
+6. Implicit knowledge / gotchas
 
-Don't try to exhaust the user. Two or three rounds, then move on — context is built incrementally and the agent loop will surface gaps later.
+Don't try to exhaust the user. Two or three rounds, then move on.
 
 ## Phase 6 — Generate `harness.yml` and Finalize State
 
-Write `harness.yml` from everything collected. Sketch:
+Write `harness.yml` from everything collected. Key additions from the analysis:
 
-```yaml
-version: 1
+- **`commands.deps`** — always include, separate from build.
+- **`runtime.language`** — use user-facing names (e.g. `javascript`, `python`). The CLI normalizes them internally.
+- **`env.runtime_blocks`** — only include if the user needs to override the default install for a language (e.g. specific Node version, custom Python build). Otherwise omit and let the defaults handle it.
 
-harness:
-  purpose: "<harness_purpose>"
-  initialized_at: "<ISO timestamp>"
+Show the generated file to the user (interactive) or print a summary (fast-path), then save.
 
-projects:
-  - name: my-service
-    path: projects/my-service
-    submodule:
-      url: git@github.com:acme/my-service.git
-      ref: main
-    writable: true
-    runtime:
-      language: [python]
-      python: { version: "3.12" }
-    commands:
-      build: "<from analysis>"
-      test:  "<from analysis>"
-      lint:  "<from analysis>"
-
-services:
-  # populated from cross-project analysis (shared db, redis, etc.)
-
-context:
-  ingest:
-    - source: "{project.path}/docs/**/*.md"
-      into:   "context/upstream/{project.name}/docs/"
-      tags:   [docs, upstream]
-
-agent:
-  policy: agent/policies.md
-  # populated with sensible defaults; user reviews
-```
-
-Show the generated file to the user, ask for corrections, then save.
-
-Update `.harness/state.json`:
-
-```json
-{
-  "version": 1,
-  "status": "initialized",
-  "initialized_at": "<ISO timestamp>",
-  "harness_purpose": "...",
-  "projects": [
-    { "name": "...", "url": "...", "branch": "...", "ref": "<sha>", "writable": true, "status": "analyzed" }
-  ]
-}
-```
+Update `.harness/state.json` to `"initialized"`.
 
 ## Phase 7 — Seed Per-Project Skills
 
-For each project, create a stub at `skills/projects/<name>/README.md`:
-
-```yaml
----
-name: <name>-skills
-description: Project-specific skills for <name>. Override or extend the harness defaults.
-audience: [agent]
-project: <name>
----
-```
-
-Body: `# <name>` plus a "What's special about this project" section that the user fills in (or that future agent runs add to as they learn).
+For each project, create a stub at `skills/projects/<name>/README.md` with frontmatter and key sections derived from Phase 3 analysis.
 
 ## Phase 8 — Handoff
 
-Print a short summary to the user:
+Print a short summary:
 
 - Harness purpose
 - Projects pulled (name @ branch @ short-sha)
-- Files created (count + a few key paths)
+- Detected: languages, test frameworks, service deps
+- Files created (count + key paths)
+- **Gaps detected** (no linter, no build step, open questions)
 - Suggested next steps:
+  - `make -f env/Makefile bootstrap` to regenerate env files
+  - `make -f env/Makefile up` to start the dev container
+  - `make -f env/Makefile deps` to install project dependencies
+  - `make -f env/Makefile test` to run tests
   - Review `harness.yml` and `context/architecture.md`
-  - Run `make bootstrap` once the env layer exists (M1)
-  - Open an issue or task and let the agent loop run
 
 Set `status` to `initialized`. Done.
 
 ## Failure & Recovery
 
 - If interrupted at any phase, the next invocation reads `.harness/state.json` and resumes from `current_phase`.
-- If the user wants to *redo* a phase (e.g. they realized they listed the wrong branch), they can edit state.json and set that project's `status` back to `pending`/`pulled`/`analyzed` accordingly. Document this in the handoff message.
-- Never delete a submodule without explicit user confirmation — `git submodule deinit` + `rm -rf .git/modules/<name>` + `git rm projects/<name>` is destructive.
+- If the user wants to redo a phase, they can edit state.json and set that project's `status` back to `pending`/`pulled`/`analyzed`.
+- Never delete a submodule without explicit user confirmation.
 
 ## What This Skill Does NOT Do
 
-- It does not generate the `env/` layer (Dockerfile, compose, Makefile). That is the bootstrap step (M1), separate from initialization.
+- It does not generate the `env/` layer (Dockerfile, compose). That is `harness bootstrap`, called after initialization.
 - It does not run any code from the submodules. Read-only static analysis only.
 - It does not push anything to the submodules' upstream remotes.
