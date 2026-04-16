@@ -1,0 +1,3 @@
+[submodule "projects/xz"]
+	path = projects/xz
+	url = https://github.com/tukaani-project/xz.git

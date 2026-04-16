@@ -1,0 +1,67 @@
+version: 1
+
+harness:
+  purpose: "Development and testing harness for XZ Utils — the liblzma compression library and xz command-line tools"
+  initialized_at: "2026-04-15T00:00:00Z"
+
+env:
+  base_image: "ubuntu:24.04"
+  # xz doesn't fit the default runtime_blocks (node/python/go/rust/java/ruby).
+  # Add a custom "c" block that installs the autotools + cmake + i18n/doc
+  # toolchain on top of the build-essential the base layer already provides.
+  runtime_blocks:
+    c: |
+      RUN apt-get update && apt-get install -y --no-install-recommends \
+            autoconf automake libtool pkg-config \
+            cmake gettext po4a autopoint doxygen \
+            && rm -rf /var/lib/apt/lists/*
+
+projects:
+  - name: xz
+    path: projects/xz
+    submodule:
+      url: https://github.com/tukaani-project/xz.git
+      ref: master
+    writable: true
+    runtime:
+      language: [c]
+    commands:
+      deps: "./autogen.sh --no-po4a && ./configure"
+      build: "make -j$(nproc)"
+      test: "make check -j$(nproc)"
+      lint: "echo 'no linter configured for C; clang-format available but not enforced upstream'"
+      run: "./src/xz/xz --version"
+
+services: []
+
+context:
+  ingest:
+    - source: "{project.path}/README"
+      into: "context/upstream/{project.name}/README.md"
+      tags: [docs, upstream]
+    - source: "{project.path}/NEWS"
+      into: "context/upstream/{project.name}/NEWS.md"
+      tags: [history, upstream]
+    - source: "{project.path}/doc/*.txt"
+      into: "context/upstream/{project.name}/doc/"
+      tags: [docs, upstream]
+
+agent:
+  policy: agent/policies.md
+  allow:
+    - "make deps"
+    - "make build"
+    - "make test"
+    - "make lint"
+    - "make shell"
+    - "make up"
+    - "make down"
+    - "make reindex"
+    - "make report"
+    - "git commit"
+  deny:
+    - "git push origin master"
+    - "make deploy"
+  require_human_for:
+    - dependency_upgrades_major
+    - first_touch_on_submodule
