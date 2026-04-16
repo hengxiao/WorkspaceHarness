@@ -15,8 +15,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       && rm -rf /var/lib/apt/lists/*
 
 # --- harness CLI -------------------------------------------------------------
+# Editable install: the installed package's metadata points at
+# /opt/harness-cli/src/harness, so a bind-mount over /opt/harness-cli
+# (via env/docker-compose.dev.yml when HARNESS_DEV=1) makes live edits
+# to the host's cli/ take effect in the container without rebuilding.
 COPY cli/ /opt/harness-cli/
-RUN pip install --break-system-packages /opt/harness-cli
+RUN pip install --break-system-packages -e /opt/harness-cli
 
 # --- per-project runtime layers ---------------------------------------------
 # Rendered from runtime_blocks (data-driven). Override or add new runtimes

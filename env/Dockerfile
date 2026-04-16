@@ -15,8 +15,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       && rm -rf /var/lib/apt/lists/*
 
 # --- harness CLI ---
+# Editable install so that bind-mounting cli/ over /opt/harness-cli
+# (HARNESS_DEV=1) makes CLI edits take effect without rebuilding.
 COPY cli/ /opt/harness-cli/
-RUN pip install --break-system-packages /opt/harness-cli
+RUN pip install --break-system-packages -e /opt/harness-cli
 
 # HARNESS:KEEP:BEGIN custom-tooling
 # Add custom RUN/COPY steps here. They survive `harness bootstrap`.

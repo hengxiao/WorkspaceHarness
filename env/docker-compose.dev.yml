@@ -1,0 +1,19 @@
+# Compose override for iterating on the harness CLI itself without
+# rebuilding the dev image every time.
+#
+# Used by the Makefile when HARNESS_DEV=1 is set:
+#
+#   HARNESS_DEV=1 make up
+#   HARNESS_DEV=1 make shell    # edit cli/*.py on the host; changes are live
+#
+# Works because the base Dockerfile does `pip install -e /opt/harness-cli`,
+# so the installed package's metadata points at /opt/harness-cli/src/harness.
+# Bind-mounting the host's cli/ over /opt/harness-cli makes every import
+# resolve to the host tree.
+
+services:
+  dev:
+    volumes:
+      - ../cli:/opt/harness-cli
+    environment:
+      - HARNESS_DEV=1

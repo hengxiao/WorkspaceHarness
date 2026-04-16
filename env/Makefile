@@ -10,11 +10,20 @@
 
 HARNESS_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)
 COMPOSE_FILE := $(HARNESS_ROOT)/env/docker-compose.yml
+DEV_COMPOSE_FILE := $(HARNESS_ROOT)/env/docker-compose.dev.yml
 
 # Auto-detect docker compose v2 (plugin) vs v1 (standalone).
 COMPOSE := $(shell docker compose version >/dev/null 2>&1 \
              && echo "docker compose" \
              || echo "docker-compose")
+
+# When HARNESS_DEV=1, overlay the dev compose file so cli/ is bind-mounted
+# over /opt/harness-cli — CLI edits take effect immediately, no image rebuild.
+ifeq ($(HARNESS_DEV),1)
+  COMPOSE_FILES := -f $(COMPOSE_FILE) -f $(DEV_COMPOSE_FILE)
+else
+  COMPOSE_FILES := -f $(COMPOSE_FILE)
+endif
 
 IMAGE := harness-dev
 
@@ -57,6 +66,10 @@ help:
 	@echo ""
 	@echo "  CI (one-shot):"
 	@echo "    ci             up → deps → build → test → lint → report → down"
+	@echo ""
+	@echo "  Dev iteration on the CLI itself:"
+	@echo "    HARNESS_DEV=1 make up    Bind-mount cli/ over /opt/harness-cli"
+	@echo "                             so CLI edits take effect live."
 	@echo ""
 	@echo "  Validation:"
 	@echo "    ctx-validate   Check context/ frontmatter and index freshness"
@@ -105,46 +118,46 @@ ensure-image:
 	  || $(MAKE) -f $(HARNESS_ROOT)/env/Makefile image-force
 
 up: init-check ensure-image
-	$(COMPOSE) -f $(COMPOSE_FILE) up -d dev
+	$(COMPOSE) $(COMPOSE_FILES) up -d dev
 
 down:
-	$(COMPOSE) -f $(COMPOSE_FILE) down
+	$(COMPOSE) $(COMPOSE_FILES) down
 
 reset:
-	$(COMPOSE) -f $(COMPOSE_FILE) down -v
+	$(COMPOSE) $(COMPOSE_FILES) down -v
 
 # Auto-start the dev container if it isn't running.
 ensure-up: ensure-image
-	@$(COMPOSE) -f $(COMPOSE_FILE) ps --services --filter "status=running" 2>/dev/null \
+	@$(COMPOSE) $(COMPOSE_FILES) ps --services --filter "status=running" 2>/dev/null \
 	  | grep -q '^dev$$' \
-	  || $(COMPOSE) -f $(COMPOSE_FILE) up -d dev
+	  || $(COMPOSE) $(COMPOSE_FILES) up -d dev
 
 # ---------------------------------------------------------------------------
 # Project work — all exec into the persistent dev container.
 # ---------------------------------------------------------------------------
 
 deps: init-check ensure-up
-	$(COMPOSE) -f $(COMPOSE_FILE) exec -T -w /work dev harness exec deps
+	$(COMPOSE) $(COMPOSE_FILES) exec -T -w /work dev harness exec deps
 
 build: init-check ensure-up
-	$(COMPOSE) -f $(COMPOSE_FILE) exec -T -w /work dev harness exec build
+	$(COMPOSE) $(COMPOSE_FILES) exec -T -w /work dev harness exec build
 
 test: init-check ensure-up
-	$(COMPOSE) -f $(COMPOSE_FILE) exec -T -w /work dev harness exec test
+	$(COMPOSE) $(COMPOSE_FILES) exec -T -w /work dev harness exec test
 
 lint: init-check ensure-up
-	$(COMPOSE) -f $(COMPOSE_FILE) exec -T -w /work dev harness exec lint
+	$(COMPOSE) $(COMPOSE_FILES) exec -T -w /work dev harness exec lint
 
 run: init-check ensure-up
-	$(COMPOSE) -f $(COMPOSE_FILE) exec -T -w /work dev harness exec run
+	$(COMPOSE) $(COMPOSE_FILES) exec -T -w /work dev harness exec run
 
 shell: ensure-up
-	$(COMPOSE) -f $(COMPOSE_FILE) exec -w /work dev bash
+	$(COMPOSE) $(COMPOSE_FILES) exec -w /work dev bash
 
 # Escape hatch for operations that require root (apt-get install, chown
 # adjustments, etc.). Prefer plain `make shell` + `sudo <cmd>` for one-offs.
 shell-root: ensure-up
-	$(COMPOSE) -f $(COMPOSE_FILE) exec --user root -w /work dev bash
+	$(COMPOSE) $(COMPOSE_FILES) exec --user root -w /work dev bash
 
 # ---------------------------------------------------------------------------
 # CI — single entry point for automation.
@@ -152,12 +165,12 @@ shell-root: ensure-up
 # ---------------------------------------------------------------------------
 
 ci: init-check
-	$(COMPOSE) -f $(COMPOSE_FILE) up -d dev
-	$(COMPOSE) -f $(COMPOSE_FILE) exec -T -w /work dev \
+	$(COMPOSE) $(COMPOSE_FILES) up -d dev
+	$(COMPOSE) $(COMPOSE_FILES) exec -T -w /work dev \
 	  bash -lc "harness exec deps && harness exec build && harness exec test && harness exec lint" ; \
 	STATUS=$$? ; \
 	harness report || true ; \
-	$(COMPOSE) -f $(COMPOSE_FILE) down ; \
+	$(COMPOSE) $(COMPOSE_FILES) down ; \
 	exit $$STATUS
 
 # ---------------------------------------------------------------------------
@@ -175,7 +188,10 @@ policy-check:
 # ---------------------------------------------------------------------------
 
 init-check:
-	@if [ ! -f "$(HARNESS_ROOT)/harness.yml" ]; then \
+	@if [ "$(HARNESS_DEV)" = "1" ]; then \
+		exit 0; \
+	fi; \
+	if [ ! -f "$(HARNESS_ROOT)/harness.yml" ]; then \
 		echo ""; \
 		echo "harness.yml not found — this harness is uninitialized."; \
 		echo "Open the repo in Claude Code (or another agent) and run the"; \
