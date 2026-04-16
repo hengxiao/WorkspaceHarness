@@ -10,6 +10,7 @@ from rich.console import Console
 from . import __version__
 from .bootstrap import run_bootstrap
 from .ctx import cmd_add, cmd_reindex, cmd_search, cmd_validate
+from .detect import detect_project, render_yaml_snippet
 from .exec_ import run_exec
 from .policy import check_command, check_staged
 from .report import run_report
@@ -135,6 +136,32 @@ def report() -> None:
 def status() -> None:
     """Print harness state."""
     print_status()
+
+
+# --------------------------------------------------------------------------- #
+# init helpers
+# --------------------------------------------------------------------------- #
+@main.group()
+def init() -> None:
+    """Initialization helpers."""
+
+
+@init.command("detect")
+@click.argument("path", type=click.Path(exists=True, file_okay=False))
+@click.option("--name", default=None, help="Project name (defaults to directory basename).")
+@click.option("--project-path", default=None,
+              help="Value to emit for `path:` in the snippet (defaults to `projects/<name>`).")
+def init_detect(path: str, name: str | None, project_path: str | None) -> None:
+    """Detect a project's toolchain and emit a harness.yml projects[] snippet.
+
+    PATH is an already-cloned directory (typically projects/<name> inside a
+    harness). The snippet is printed to stdout so the user or an agent can
+    review and paste it into harness.yml.
+    """
+    from pathlib import Path as _Path
+    result = detect_project(_Path(path), name=name)
+    snippet = render_yaml_snippet(result, project_path=project_path)
+    click.echo(snippet, nl=False)
 
 
 if __name__ == "__main__":
