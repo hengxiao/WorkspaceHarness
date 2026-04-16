@@ -9,9 +9,11 @@ from rich.console import Console
 
 from . import __version__
 from .bootstrap import run_bootstrap
+from .config import find_harness_root
 from .ctx import cmd_add, cmd_reindex, cmd_search, cmd_validate
 from .detect import detect_project, render_yaml_snippet
 from .exec_ import run_exec
+from .ingest import run_ingest
 from .policy import check_command, check_staged
 from .report import run_report
 from .status import print_status
@@ -76,6 +78,18 @@ def ctx_validate() -> None:
 def ctx_reindex() -> None:
     """Rebuild context/index.json (M2 — currently a stub)."""
     cmd_reindex()
+
+
+@ctx.command("ingest")
+def ctx_ingest() -> None:
+    """Ingest upstream snapshots declared in context.ingest: from harness.yml."""
+    result = run_ingest()
+    root = find_harness_root()
+    for dest in result.written:
+        console.print(f"  [green]wrote[/green] {dest.relative_to(root)}")
+    for pattern, reason in result.skipped:
+        console.print(f"  [yellow]skip[/yellow] {pattern} ({reason})")
+    console.print(f"[bold]ingest[/bold] — {result.count} file(s) written")
 
 
 @ctx.command("search")
