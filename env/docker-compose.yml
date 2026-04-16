@@ -1,0 +1,22 @@
+# Fallback compose file for an UNINITIALIZED workspace-harness.
+# `harness bootstrap` regenerates this from
+# cli/src/harness/templates/docker-compose.yml.j2 once harness.yml exists.
+
+services:
+  dev:
+    build:
+      context: ..
+      dockerfile: env/Dockerfile
+    image: harness-dev
+    working_dir: /work
+    volumes:
+      - ../:/work:cached
+    environment:
+      - HARNESS_ROOT=/work
+    # HARNESS:KEEP:BEGIN dev-extras
+    # Add ports, env, or extra mounts here.
+    # HARNESS:KEEP:END dev-extras
+
+# HARNESS:KEEP:BEGIN extra-services
+# Declare additional services here.
+# HARNESS:KEEP:END extra-services

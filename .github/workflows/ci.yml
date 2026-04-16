@@ -1,0 +1,100 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# NOTE: this workflow assumes env/Dockerfile and env/docker-compose.yml exist.
+# Both are produced by `make bootstrap` after the harness is initialized
+# (M1 in .spec/design.md). Until then this workflow will fail at the build
+# step — that is intentional and signals the harness is uninitialized.
+
+jobs:
+  build-test-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Validate harness state
+        run: |
+          if [ ! -f harness.yml ]; then
+            echo "::error::harness.yml not found. Run the 'initialization' skill."
+            exit 1
+          fi
+          if [ ! -f env/Dockerfile ]; then
+            echo "::error::env/Dockerfile not found. Run 'make bootstrap'."
+            exit 1
+          fi
+
+      - name: Build dev image
+        run: docker build -t harness-dev -f env/Dockerfile env/
+
+      - name: Build
+        run: make -f env/Makefile build
+
+      - name: Lint
+        run: make -f env/Makefile lint
+        continue-on-error: true   # report but don't fail the job here; report step decides
+
+      - name: Test
+        run: make -f env/Makefile test
+        continue-on-error: true
+
+      - name: Aggregate report
+        if: always()
+        run: make -f env/Makefile report
+
+      - name: Publish report to job summary
+        if: always()
+        run: |
+          if [ -f .harness/reports/report.md ]; then
+            cat .harness/reports/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload reports artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-reports
+          path: .harness/reports/
+
+      - name: Upload SARIF for code scanning
+        if: always() && hashFiles('.harness/reports/lint/results.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: .harness/reports/lint/results.sarif
+
+      - name: Fail job if test or lint failed
+        if: always()
+        run: |
+          test -f .harness/reports/status.json || { echo "no status.json"; exit 1; }
+          jq -e '.test == "passed" and .lint == "passed"' .harness/reports/status.json
+
+  policy-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate policies
+        run: |
+          if ! command -v harness >/dev/null 2>&1; then
+            echo "::warning::harness CLI not on PATH; skipping policy check (M3)."
+            exit 0
+          fi
+          harness policy check --staged
+
+  context-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate context frontmatter and index
+        run: |
+          if ! command -v harness >/dev/null 2>&1; then
+            echo "::warning::harness CLI not on PATH; skipping context validation (M2)."
+            exit 0
+          fi
+          harness ctx validate

@@ -1,0 +1,75 @@
+# Machine-readable mirror of agent/policies.md.
+# Enforced by agent/hooks/pre-commit.sh and the `harness policy check` CLI.
+# CI fails if this file and policies.md drift.
+
+version: 1
+
+allow:
+  commands:
+    - "make build"
+    - "make test"
+    - "make lint"
+    - "make shell"
+    - "make up"
+    - "make down"
+    - "make reindex"
+    - "make report"
+    - "git add"
+    - "git commit"
+    - "git checkout -b *"
+    - "git status"
+    - "git diff*"
+    - "git log*"
+  paths_writable:
+    - "context/**"
+    - "skills/**"
+    - "agent/**"
+    - "env/**"
+    - ".spec/**"
+    - "harness.yml"
+    # Submodule writes are gated separately — see `submodule_writes` below.
+
+deny:
+  commands:
+    - "git push*"
+    - "git push --force*"
+    - "git reset --hard*"
+    - "git rebase -i*"
+    - "git submodule deinit*"
+    - "git submodule remove*"
+    - "git branch -D*"
+    - "make deploy*"
+    - "rm -rf*"
+  paths_writable:
+    - ".github/**"           # CI changes need human review
+    - ".gitmodules"
+    - "agent/policies.*"     # policy changes need human review
+    - ".spec/**"             # spec changes need human review (also in require_human_for)
+    - "**/.env*"
+    - "**/*.key"
+    - "**/*.pem"
+    - "**/secrets/**"
+  # Hard rule: harness directories must never be written under projects/<name>/.
+  forbidden_paths_in_submodules:
+    - "context/"
+    - "skills/"
+    - "agent/"
+    - "env/"
+    - ".spec/"
+    - ".harness/"
+    - ".github/"
+    - "harness.yml"
+
+submodule_writes:
+  # Writes inside projects/<name>/ are allowed only when:
+  #   1. The submodule's `writable: true` in harness.yml, AND
+  #   2. The active task is scoped to that submodule.
+  # This is enforced by the pre-commit hook reading the task manifest.
+  default: read_only
+
+require_human_for:
+  - schema_migrations
+  - dependency_upgrades_major
+  - changes_to_policies
+  - changes_to_spec
+  - first_touch_on_submodule

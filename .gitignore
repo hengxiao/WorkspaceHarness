@@ -1,0 +1,32 @@
+# Generated harness state — keep the directory, not its contents.
+.harness/*
+!.harness/.gitkeep
+!.harness/reports/.gitkeep
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+
+# Local env / secrets
+.env
+.env.local
+*.key
+*.pem
+
+# Docker
+.dockerignore.local
