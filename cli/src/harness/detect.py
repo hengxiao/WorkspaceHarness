@@ -286,12 +286,24 @@ def detect_project(path: Path, name: Optional[str] = None) -> DetectResult:
             f"Multiple languages detected: {languages}. "
             f"Primary commands target {languages[0]}; review for correctness."
         )
-    if native:
+
+    build = _detect_build_command(path, languages)
+    # Native Python extensions: after build, the compiled .so lives in
+    # build/lib.../, but the editable install's metadata still points at
+    # the old location. Append a refresh step so `make test` picks up the
+    # fresh binary. See skills/initialization.md "Native extensions —
+    # build must refresh the editable install" for background.
+    if native and "python" in languages and build:
+        build = f"{build} && pip install --user -e . --force-reinstall --no-deps"
         notes.append(
             "Native extension detected (.pyx / setup.py ext_modules). "
-            "After `build`, you may need to refresh the editable install "
-            "(e.g. `pip install -e . --force-reinstall --no-deps`) so rebuilt "
-            ".so files are picked up by the installed package."
+            "`build` appends a `pip install --force-reinstall --no-deps` step "
+            "so rebuilt .so files are re-linked into the editable install."
+        )
+    elif native:
+        notes.append(
+            "Native extension detected. Ensure `build` refreshes whatever "
+            "installed metadata points at the compiled artifact."
         )
 
     lint = _detect_lint_command(path, languages)
@@ -305,7 +317,7 @@ def detect_project(path: Path, name: Optional[str] = None) -> DetectResult:
         name=name,
         languages=languages,
         deps=_detect_deps_command(path, languages),
-        build=_detect_build_command(path, languages),
+        build=build,
         test=_detect_test_command(path, languages),
         lint=lint,
         notes=notes,

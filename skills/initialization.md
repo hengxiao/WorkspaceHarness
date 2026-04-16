@@ -162,6 +162,30 @@ From the detection, construct the `commands:` block for `harness.yml`:
 
 **Omit, don't stub.** When a target doesn't apply to a project, leave the key out of the `commands:` block entirely. The CLI surfaces the gap explicitly; silent `echo ... && true` stubs hide real configuration debt.
 
+### Native extensions — `build` must refresh the editable install
+
+If the project has a compiled extension (Python with `.pyx` / `ext_modules=` / `cffi`, Rust with `pyo3`, Node with `node-gyp`, etc.), `make build` compiling the `.so`/`.node` file is **not enough**. The editable install's metadata still points at the old file location, so the rebuilt binary isn't picked up at import time. Agents that write a narrow `build: "make build"` and then run `test` see stale behavior and chase non-bugs.
+
+**Pattern for Python + native extensions:**
+
+```yaml
+commands:
+  deps: "pip install --user -e . pytest"
+  build: "make build && pip install --user -e . --force-reinstall --no-deps"
+```
+
+The `--force-reinstall --no-deps` re-links the editable install without re-resolving every dependency — fast, and guaranteed to pick up the fresh `.so` file in `lib/yaml/` (or wherever the project puts it).
+
+**Equivalent patterns for other ecosystems:**
+
+- **Rust with pyo3** (maturin): `maturin develop` — one command does both build and install.
+- **Node with native addons**: `npm rebuild` — recompiles and re-links.
+- **Pure autotools / cmake C projects** (like xz): no editable-install concept; `make` alone is fine.
+
+**Signal that this is needed:** `harness init detect` flags `has_native_extension: true` in its notes when it sees `.pyx`, `.pxd`, `ext_modules=`, or `Extension(` in `setup.py`. When you see that note, don't just use the plain `build` command — apply the refresh pattern.
+
+**Signal that it wasn't applied:** tests pass once, you edit C/Cython source, `make build` reports success, tests still behave as before the edit. You are looking at the stale `.so` from the previous build.
+
 ### Forbidden facts in `overview.md`
 
 READMEs rot, but `overview.md` sits next to live code. Copying a stale number there gives both humans and future agents false confidence. The following **must not** be transcribed from docs — they are either derived at runtime by the harness or omitted entirely:

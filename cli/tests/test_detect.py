@@ -313,12 +313,24 @@ class TestRealisticFixtures:
         assert result.languages == ["python"]
         # Lock-free pyproject → default pip install
         assert result.deps == "pip install --user -e ."
-        # Makefile targets win over language default
-        assert result.build == "make build"
+        # Makefile targets win over language default, AND native-extension
+        # projects get the editable-install refresh appended automatically.
+        assert result.build == (
+            "make build && pip install --user -e . --force-reinstall --no-deps"
+        )
         assert result.test == "make test"
         assert result.has_native_extension
         # Lint unconfigured upstream
         assert result.lint is None
+
+    def test_pure_python_does_not_get_refresh_appended(self, tmp_path: Path):
+        """Non-native Python project should NOT get the refresh suffix."""
+        _touch(tmp_path / "pyproject.toml", "[project]\nname = 'x'\n")
+        _touch(tmp_path / "Makefile", "build:\n\tpython -m build\n")
+        result = detect_project(tmp_path, name="x")
+        assert result.has_native_extension is False
+        assert result.build == "make build"
+        assert "force-reinstall" not in result.build
 
     def _make_xz_like(self, tmp_path: Path) -> Path:
         _touch(tmp_path / "configure.ac", "AC_INIT(xz, 5.8.0)")
