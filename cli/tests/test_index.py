@@ -283,6 +283,216 @@ typedef unsigned long size_t;
         assert "stdio.h" in modules
         assert "config.h" in modules
 
+    def test_cpp_class_with_export_macro(self):
+        source = b"""
+class CV_EXPORTS Mat {
+public:
+    int rows, cols;
+};
+
+class CV_EXPORTS_W Algorithm : public detail::AlgorithmImpl {
+    virtual void run();
+};
+"""
+        result = extract_file(source, "test.hpp", "cpp")
+        names = [s.name for s in result.symbols if s.kind == "class"]
+        assert "Mat" in names
+        assert "Algorithm" in names
+        algo = next(s for s in result.symbols if s.name == "Algorithm")
+        assert "detail::AlgorithmImpl" in algo.bases
+
+    def test_cpp_class_multiple_inheritance(self):
+        source = b"""
+class Derived : public Base, protected Mixin, private Helper {
+    void method();
+};
+"""
+        result = extract_file(source, "test.cpp", "cpp")
+        cls = next(s for s in result.symbols if s.name == "Derived")
+        assert "Base" in cls.bases
+        assert "Mixin" in cls.bases
+        assert "Helper" in cls.bases
+
+    def test_cpp_namespace(self):
+        source = b"""
+namespace cv {
+    void foo();
+}
+"""
+        result = extract_file(source, "test.cpp", "cpp")
+        names = [s.name for s in result.symbols if s.kind == "namespace"]
+        assert "cv" in names
+
+    def test_cpp_method_with_namespace(self):
+        source = b"""
+void Mat::create(int rows, int cols) {
+    // impl
+}
+"""
+        result = extract_file(source, "test.cpp", "cpp")
+        sym = next(s for s in result.symbols if s.name == "create")
+        assert sym.kind == "method"
+
+    def test_noise_refs_filtered(self):
+        source = b"""
+void foo() {
+    v.push_back(1);
+    v.size();
+    v.empty();
+    bar(42);
+    Copyright(c);
+}
+"""
+        result = extract_file(source, "test.cpp", "cpp")
+        ref_names = {r.name for r in result.refs}
+        assert "bar" in ref_names
+        assert "push_back" not in ref_names
+        assert "size" not in ref_names
+        assert "Copyright" not in ref_names
+
+
+# ---------------------------------------------------------------------------
+# JavaScript extractor
+# ---------------------------------------------------------------------------
+
+class TestJavaScriptExtractor:
+    def test_extract_functions_and_classes(self):
+        source = b"""
+function processData(input) {
+    return input.trim();
+}
+
+export class DataProcessor extends BaseProcessor {
+    constructor(config) {
+        super(config);
+    }
+
+    transform(data) {
+        return processData(data);
+    }
+}
+
+const helper = (x) => x + 1;
+"""
+        result = extract_file(source, "test.js", "javascript")
+        names = [s.name for s in result.symbols]
+        assert "processData" in names
+        assert "DataProcessor" in names
+        assert "transform" in names
+        assert "helper" in names
+
+        cls = next(s for s in result.symbols if s.name == "DataProcessor")
+        assert cls.kind == "class"
+        assert "BaseProcessor" in cls.bases
+        assert cls.is_export
+
+    def test_extract_imports(self):
+        source = b"""
+import { readFile, writeFile } from 'fs';
+import path from 'path';
+import * as utils from './utils';
+"""
+        result = extract_file(source, "test.js", "javascript")
+        modules = [i.module for i in result.imports]
+        assert "fs" in modules
+        assert "path" in modules
+        assert "./utils" in modules
+        fs_import = next(i for i in result.imports if i.module == "fs")
+        assert "readFile" in fs_import.names
+
+    def test_async_function(self):
+        source = b"""
+async function fetchData(url) {
+    return await fetch(url);
+}
+"""
+        result = extract_file(source, "test.js", "javascript")
+        sym = next(s for s in result.symbols if s.name == "fetchData")
+        assert "async" in sym.signature
+
+    def test_typescript_support(self):
+        result = extract_file(b"function foo(): void {}\n", "test.ts", "typescript")
+        assert any(s.name == "foo" for s in result.symbols)
+
+
+# ---------------------------------------------------------------------------
+# Java extractor
+# ---------------------------------------------------------------------------
+
+class TestJavaExtractor:
+    def test_extract_class_and_methods(self):
+        source = b"""
+package com.example;
+
+import java.util.List;
+import java.util.ArrayList;
+
+public class MyService extends AbstractService implements Serializable {
+    private List<String> items;
+
+    public void addItem(String item) {
+        items.add(item);
+    }
+
+    protected String getItem(int index) {
+        return items.get(index);
+    }
+}
+"""
+        result = extract_file(source, "MyService.java", "java")
+        names = [s.name for s in result.symbols]
+        assert "MyService" in names
+        assert "addItem" in names
+        assert "getItem" in names
+
+        cls = next(s for s in result.symbols if s.name == "MyService")
+        assert cls.kind == "class"
+        assert "AbstractService" in cls.bases
+        assert "Serializable" in cls.bases
+        assert cls.is_export
+
+        modules = [i.module for i in result.imports]
+        assert "java.util.List" in modules
+        assert "java.util.ArrayList" in modules
+
+    def test_extract_interface(self):
+        source = b"""
+public interface Processor<T> extends Runnable {
+    void process(T input);
+}
+"""
+        result = extract_file(source, "Processor.java", "java")
+        iface = next(s for s in result.symbols if s.name == "Processor")
+        assert iface.kind == "interface"
+        assert "Runnable" in iface.bases
+
+    def test_extract_enum(self):
+        source = b"""
+public enum Color {
+    RED, GREEN, BLUE;
+}
+"""
+        result = extract_file(source, "Color.java", "java")
+        sym = next(s for s in result.symbols if s.name == "Color")
+        assert sym.kind == "enum"
+
+    def test_method_visibility(self):
+        source = b"""
+public class Foo {
+    private void secret() {
+        // hidden
+    }
+    public void visible() {
+        // shown
+    }
+}
+"""
+        result = extract_file(source, "Foo.java", "java")
+        secret = next(s for s in result.symbols if s.name == "secret")
+        assert secret.visibility == "private"
+        visible = next(s for s in result.symbols if s.name == "visible")
+        assert visible.is_export
+
 
 # ---------------------------------------------------------------------------
 # End-to-end: reindex + query API

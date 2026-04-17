@@ -66,7 +66,9 @@ LANG_EXTENSIONS: dict[str, str] = {
 SKIP_DIRS = frozenset({
     ".git", "__pycache__", "node_modules", ".tox", ".venv", "venv",
     ".mypy_cache", ".ruff_cache", ".pytest_cache", "dist", "build",
-    ".eggs", "*.egg-info", ".hg", ".svn", "vendor",
+    ".eggs", ".hg", ".svn",
+    "vendor", "3rdparty", "third_party", "thirdparty", "extern",
+    "deps", "external",
 })
 
 DEFAULT_MAX_FILE_SIZE = 1_048_576  # 1 MB

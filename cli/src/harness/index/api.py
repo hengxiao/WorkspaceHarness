@@ -12,7 +12,7 @@ from .extractor import ExtractionResult, extract_file
 from .walker import FileEntry, diff_against_db, walk_project
 
 # Ensure language extractors are registered on import.
-from .extractors import python as _py, c as _c  # noqa: F401
+from .extractors import python as _py, c as _c, javascript as _js, java as _java  # noqa: F401
 
 
 def reindex(
