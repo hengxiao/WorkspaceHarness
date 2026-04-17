@@ -129,18 +129,36 @@ def _detect_deps_command(path: Path, languages: list[str]) -> Optional[str]:
 
 _MAKEFILE_TARGET = re.compile(r"^([a-zA-Z0-9_\-./]+)\s*:", re.MULTILINE)
 
+# Variable-defined targets: e.g. CHECK_TARGETS = check check-expensive ...
+# followed by $(CHECK_TARGETS): — we extract target names from the assignment.
+_VAR_ASSIGN = re.compile(r"^([A-Z_]+)\s*[:+?]?=\s*(.+)$", re.MULTILINE)
+_VAR_TARGET = re.compile(r"^\$\(([A-Z_]+)\)\s*:", re.MULTILINE)
+
 
 def _makefile_targets(path: Path) -> set[str]:
     mf = path / "Makefile"
+    if not mf.exists():
+        mf = path / "Makefile.in"
     if not mf.exists():
         return set()
     try:
         text = mf.read_text(errors="ignore")
     except OSError:
         return set()
-    # Strip .PHONY declarations and comments
+    # Strip comments
     text = re.sub(r"^\s*#.*$", "", text, flags=re.MULTILINE)
-    return {m.group(1) for m in _MAKEFILE_TARGET.finditer(text)}
+    targets = {m.group(1) for m in _MAKEFILE_TARGET.finditer(text)}
+
+    # Resolve variable-defined targets: find $(VAR): rules, then extract
+    # the target names from the VAR = ... assignment.
+    var_names_used = {m.group(1) for m in _VAR_TARGET.finditer(text)}
+    if var_names_used:
+        for m in _VAR_ASSIGN.finditer(text):
+            if m.group(1) in var_names_used:
+                value = m.group(2).rstrip("\\").strip()
+                targets.update(value.split())
+
+    return targets
 
 
 def _detect_test_command(path: Path, languages: list[str]) -> Optional[str]:

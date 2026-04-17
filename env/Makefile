@@ -149,7 +149,7 @@ lint: init-check ensure-up
 	$(COMPOSE) $(COMPOSE_FILES) exec -T -w /work dev harness exec lint
 
 run: init-check ensure-up
-	$(COMPOSE) $(COMPOSE_FILES) exec -T -w /work dev harness exec run
+	$(COMPOSE) $(COMPOSE_FILES) exec -w /work dev harness exec run
 
 shell: ensure-up
 	$(COMPOSE) $(COMPOSE_FILES) exec -w /work dev bash

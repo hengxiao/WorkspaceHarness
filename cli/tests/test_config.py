@@ -56,9 +56,14 @@ class TestLanguageNormalization:
 # --------------------------------------------------------------------------- #
 class TestRuntimeBlocks:
     def test_defaults_cover_common_languages(self):
-        for lang in ["node", "python", "go", "rust", "java", "ruby"]:
+        for lang in ["node", "python", "go", "rust", "java", "ruby", "c"]:
             assert lang in DEFAULT_RUNTIME_BLOCKS
             assert DEFAULT_RUNTIME_BLOCKS[lang].startswith("RUN ")
+
+    def test_c_block_includes_autotools(self):
+        block = DEFAULT_RUNTIME_BLOCKS["c"]
+        for pkg in ["autoconf", "automake", "libtool", "texinfo", "pkg-config"]:
+            assert pkg in block, f"c runtime block should include {pkg}"
 
 
 # --------------------------------------------------------------------------- #

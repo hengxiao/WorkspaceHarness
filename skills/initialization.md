@@ -101,11 +101,13 @@ Record each as a pending entry under `projects[]` in state.json. Update `current
 
 For each `pending` project, in sequence:
 
-1. Run `git submodule add <url> projects/<name>`.
-2. Run `git -C projects/<name> checkout <branch>`.
-3. Verify the working tree exists and is at the expected ref.
-4. Update that project's `status` to `"pulled"` in state.json.
-5. Print: `Pulled <name> @ <branch> (<short-sha>)`.
+1. Run `git submodule add --depth 1 -b <branch> <url> projects/<name>`.
+   The `--depth 1` shallow clone keeps the initial pull fast and small; full
+   history can be fetched later with `git -C projects/<name> fetch --unshallow`
+   when needed (e.g. for `git log`, `git blame`, or bisect).
+2. Verify the working tree exists and is at the expected ref.
+3. Update that project's `status` to `"pulled"` in state.json.
+4. Print: `Pulled <name> @ <branch> (<short-sha>)`.
 
 If a submodule fails to clone, surface the error — never silently skip.
 

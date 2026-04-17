@@ -64,6 +64,30 @@ class TestDevArtifacts:
         mf = (HARNESS_ROOT / "env" / "Makefile").read_text()
         assert "HARNESS_DEV=1" in mf
 
+    def test_run_target_does_not_use_dash_T(self):
+        """The `run` target must NOT use -T because interactive programs
+        (emacs, REPLs, shells) need a TTY. Other targets (deps, build,
+        test, lint) correctly use -T for non-interactive execution."""
+        mf = (HARNESS_ROOT / "env" / "Makefile").read_text()
+        import re
+        # Find the run: target block (from 'run:' to the next blank line or target)
+        run_match = re.search(r"^run:.*\n(?:\t.*\n)*", mf, re.MULTILINE)
+        assert run_match, "run target not found in Makefile"
+        run_block = run_match.group(0)
+        assert "-T" not in run_block, (
+            f"run target must not use -T (interactive programs need a TTY), "
+            f"got: {run_block.strip()}"
+        )
+        # Verify non-interactive targets DO still use -T
+        for target in ("deps", "build", "test", "lint"):
+            target_match = re.search(
+                rf"^{target}:.*\n(?:\t.*\n)*", mf, re.MULTILINE
+            )
+            assert target_match, f"{target} target not found"
+            assert "-T" in target_match.group(0), (
+                f"{target} target should use -T for non-interactive exec"
+            )
+
 
 # ---------------------------------------------------------------------------
 # Integration — actually edit the CLI and see it reflected in the container.

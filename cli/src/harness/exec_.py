@@ -41,7 +41,23 @@ def classify(exit_code: int) -> str:
 def _run_record_dir(root: Path) -> Path:
     path = root / ".harness" / "reports" / "runs"
     path.mkdir(parents=True, exist_ok=True)
+    if not os.access(path, os.W_OK):
+        _fix_reports_ownership(path)
     return path
+
+
+def _fix_reports_ownership(path: Path) -> None:
+    """Attempt to fix ownership of reports dir left behind by a previous
+    root-owned container run. Uses sudo if available (container has
+    NOPASSWD sudo for the harness user)."""
+    import shutil
+    uid, gid = os.getuid(), os.getgid()
+    sudo = shutil.which("sudo")
+    if sudo:
+        subprocess.run(
+            [sudo, "chown", "-R", f"{uid}:{gid}", str(path.parent)],
+            capture_output=True,
+        )
 
 
 def _iso_now() -> str:

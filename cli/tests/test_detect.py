@@ -191,6 +191,51 @@ class TestCommandDetection:
         _touch(tmp_path / "package.json", json.dumps({"scripts": {"build": "webpack"}}))
         assert detect_project(tmp_path).build == "npm run build"
 
+    def test_makefile_in_fallback_when_no_makefile(self, tmp_path: Path):
+        """Autotools projects ship Makefile.in, not Makefile. The detector
+        should fall back to Makefile.in when Makefile is absent."""
+        _touch(tmp_path / "configure.ac", "AC_INIT(x, 0)")
+        _touch(
+            tmp_path / "Makefile.in",
+            "check:\n\t$(MAKE) -C test $@\n"
+            "all:\n\t$(MAKE) src\n",
+        )
+        result = detect_project(tmp_path)
+        assert result.test == "make check"
+
+    def test_makefile_preferred_over_makefile_in(self, tmp_path: Path):
+        """When both exist (post-configure), prefer the generated Makefile."""
+        _touch(tmp_path / "configure.ac", "")
+        _touch(tmp_path / "Makefile", "test:\n\tmake run-tests\n")
+        _touch(tmp_path / "Makefile.in", "check:\n\t./run-tests.sh\n")
+        assert detect_project(tmp_path).test == "make test"
+
+    def test_variable_defined_targets_are_resolved(self, tmp_path: Path):
+        """Emacs-style: CHECK_TARGETS = check check-expensive
+        followed by $(CHECK_TARGETS): all — check should be detected."""
+        _touch(tmp_path / "configure.ac", "AC_INIT(x, 0)")
+        _touch(
+            tmp_path / "Makefile.in",
+            "CHECK_TARGETS = check check-expensive check-all\n"
+            ".PHONY: $(CHECK_TARGETS)\n"
+            "$(CHECK_TARGETS): all\n"
+            "\t$(MAKE) -C test $@\n",
+        )
+        result = detect_project(tmp_path)
+        assert result.test == "make check"
+
+    def test_variable_defined_build_target(self, tmp_path: Path):
+        """Variable-defined build target should be resolved."""
+        _touch(tmp_path / "configure.ac", "")
+        _touch(
+            tmp_path / "Makefile.in",
+            "BUILD_TARGETS = build dist\n"
+            "$(BUILD_TARGETS):\n"
+            "\t$(MAKE) -C src $@\n",
+        )
+        result = detect_project(tmp_path)
+        assert result.build == "make build"
+
 
 # ---------------------------------------------------------------------------
 # Native extension detection (issue we hit with pyyaml)

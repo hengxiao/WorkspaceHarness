@@ -65,6 +65,11 @@ DEFAULT_RUNTIME_BLOCKS: dict[str, str] = {
         "      ruby-full \\\n"
         "      && rm -rf /var/lib/apt/lists/*"
     ),
+    "c": (
+        "RUN apt-get update && apt-get install -y --no-install-recommends \\\n"
+        "      autoconf automake libtool texinfo pkg-config \\\n"
+        "      && rm -rf /var/lib/apt/lists/*"
+    ),
 }
 
 

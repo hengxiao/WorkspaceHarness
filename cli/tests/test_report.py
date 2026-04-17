@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
-from harness.exec_ import EXIT_NOT_CONFIGURED, run_exec
+from harness.exec_ import EXIT_NOT_CONFIGURED, _run_record_dir, run_exec
 from harness.report import run_report
 
 
@@ -134,3 +135,21 @@ class TestReportAggregation:
         md = _read_report(harness_root)
         assert "## Failures" in md
         assert "failing-detail" in md
+
+
+class TestReportsOwnership:
+    def test_run_record_dir_creates_writable_directory(self, harness_root: Path):
+        """_run_record_dir must return a writable directory even when
+        created from scratch."""
+        d = _run_record_dir(harness_root)
+        assert d.is_dir()
+        assert os.access(d, os.W_OK)
+
+    def test_run_record_dir_handles_existing_dir(self, harness_root: Path):
+        """If .harness/reports/runs/ already exists, _run_record_dir must
+        still return it and it must be writable."""
+        d = harness_root / ".harness" / "reports" / "runs"
+        d.mkdir(parents=True, exist_ok=True)
+        result = _run_record_dir(harness_root)
+        assert result == d
+        assert os.access(result, os.W_OK)
