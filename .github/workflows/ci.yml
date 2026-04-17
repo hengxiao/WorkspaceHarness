@@ -5,12 +5,30 @@ on:
     branches: [main]
   pull_request:
 
-# NOTE: this workflow assumes env/Dockerfile and env/docker-compose.yml exist.
-# Both are produced by `make bootstrap` after the harness is initialized
-# (M1 in .spec/design.md). Until then this workflow will fail at the build
-# step — that is intentional and signals the harness is uninitialized.
-
 jobs:
+  # -----------------------------------------------------------------------
+  # CLI unit tests — always run, even on an uninitialized harness.
+  # -----------------------------------------------------------------------
+  unit-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install CLI + test deps
+        run: pip install -e cli[test]
+
+      - name: Run pytest
+        run: pytest cli/tests/ -v --tb=short
+
+  # -----------------------------------------------------------------------
+  # Full pipeline — only meaningful when the harness is initialized
+  # (harness.yml + env/Dockerfile exist). Skips cleanly otherwise.
+  # -----------------------------------------------------------------------
   build-test-lint:
     runs-on: ubuntu-latest
     steps:
@@ -20,33 +38,34 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Validate harness state
+      - name: Check if harness is initialized
+        id: init-check
         run: |
-          if [ ! -f harness.yml ]; then
-            echo "::error::harness.yml not found. Run the 'initialization' skill."
-            exit 1
-          fi
-          if [ ! -f env/Dockerfile ]; then
-            echo "::error::env/Dockerfile not found. Run 'make bootstrap'."
-            exit 1
+          if [ ! -f harness.yml ] || [ ! -f env/Dockerfile ]; then
+            echo "initialized=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Harness is not initialized (no harness.yml or Dockerfile). Skipping pipeline."
+          else
+            echo "initialized=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build dev image
+        if: steps.init-check.outputs.initialized == 'true'
         run: docker build -t harness-dev -f env/Dockerfile .
 
       - name: Run CI (deps → build → test → lint → report)
+        if: steps.init-check.outputs.initialized == 'true'
         run: make -f env/Makefile ci
         continue-on-error: true
 
       - name: Publish report to job summary
-        if: always()
+        if: always() && steps.init-check.outputs.initialized == 'true'
         run: |
           if [ -f .harness/reports/report.md ]; then
             cat .harness/reports/report.md >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Upload reports artifact
-        if: always()
+        if: always() && steps.init-check.outputs.initialized == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: harness-reports
@@ -59,7 +78,7 @@ jobs:
           sarif_file: .harness/reports/lint/results.sarif
 
       - name: Fail job if overall status is not passed/not_configured
-        if: always()
+        if: always() && steps.init-check.outputs.initialized == 'true'
         run: |
           test -f .harness/reports/status.json || { echo "::error::no status.json emitted"; exit 1; }
           OVERALL=$(jq -r '.overall' .harness/reports/status.json)
@@ -73,22 +92,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install CLI
+        run: pip install -e cli
+
       - name: Validate policies
-        run: |
-          if ! command -v harness >/dev/null 2>&1; then
-            echo "::warning::harness CLI not on PATH; skipping policy check (M3)."
-            exit 0
-          fi
-          harness policy check --staged
+        run: harness policy check --staged
 
   context-validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install CLI
+        run: pip install -e cli
+
       - name: Validate context frontmatter and index
-        run: |
-          if ! command -v harness >/dev/null 2>&1; then
-            echo "::warning::harness CLI not on PATH; skipping context validation (M2)."
-            exit 0
-          fi
-          harness ctx validate
+        run: harness ctx validate
