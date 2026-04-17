@@ -250,6 +250,46 @@ Show the generated file to the user (interactive) or print a summary (fast-path)
 
 Update `.harness/state.json` to `"initialized"`.
 
+## Phase 6.5 — Build Code Structure Index
+
+After `harness.yml` is written and before seeding skills, build the code
+structure index so agents can immediately query symbol definitions, call
+graphs, and import relationships:
+
+```
+harness ctx reindex
+```
+
+This walks each project's source tree, extracts symbols (functions, classes,
+methods, macros, structs), references (call sites), and imports, and stores
+them in `.harness/code.db` (SQLite with FTS5). The index is gitignored and
+rebuilt on demand.
+
+**What gets indexed:** every source file tracked by git (respecting
+`.gitignore`), classified by extension. Currently supported extractors:
+Python, C/C++. Other languages get file-level inventory only.
+
+**Post-index verification:** Run `harness ctx stats` to confirm the index
+was built. The output should show non-zero file and symbol counts for each
+project. If a project shows zero symbols, check whether its language has
+an extractor registered.
+
+**Agent usage after initialization:** Agents should prefer the code index
+over raw grep/glob for structural questions:
+
+| Question | Command |
+| --- | --- |
+| Where is function X defined? | `harness ctx symbol X --json` |
+| What does file Y export? | `harness ctx file Y --json` |
+| Who calls function X? | `harness ctx callers X --json` |
+| What imports module M? | `harness ctx imports M --reverse --json` |
+| Class hierarchy for C? | `harness ctx hierarchy C --json` |
+| Free-text search | `harness ctx search "query" --json` |
+| Raw SQL | `harness ctx query "SELECT ..." --json` |
+
+The `--json` flag is recommended for agent consumption — it returns
+structured data that doesn't need parsing.
+
 ## Phase 7 — Seed Per-Project Skills
 
 For each project, create a stub at `skills/projects/<name>/README.md` with frontmatter and key sections derived from Phase 3 analysis.
@@ -262,12 +302,14 @@ Print a short summary:
 - Projects pulled (name @ branch @ short-sha)
 - Detected: languages, test frameworks, service deps
 - Files created (count + key paths)
+- **Code index:** file/symbol/ref counts from `harness ctx stats`
 - **Gaps detected** (no linter, no build step, open questions)
 - Suggested next steps:
   - `make -f env/Makefile bootstrap` to regenerate env files
   - `make -f env/Makefile up` to start the dev container
   - `make -f env/Makefile deps` to install project dependencies
   - `make -f env/Makefile test` to run tests
+  - `harness ctx reindex` to refresh the code index after changes
   - Review `harness.yml` and `context/architecture.md`
 
 Set `status` to `initialized`. Done.

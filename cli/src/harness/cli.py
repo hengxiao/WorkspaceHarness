@@ -10,7 +10,10 @@ from rich.console import Console
 from . import __version__
 from .bootstrap import run_bootstrap
 from .config import find_harness_root
-from .ctx import cmd_add, cmd_reindex, cmd_search, cmd_validate
+from .ctx import (
+    cmd_add, cmd_callers, cmd_file, cmd_hierarchy, cmd_imports,
+    cmd_query, cmd_reindex, cmd_search, cmd_stats, cmd_symbol, cmd_validate,
+)
 from .detect import detect_project, render_yaml_snippet
 from .exec_ import run_exec
 from .ingest import run_ingest
@@ -75,9 +78,11 @@ def ctx_validate() -> None:
 
 
 @ctx.command("reindex")
-def ctx_reindex() -> None:
-    """Rebuild context/index.json (M2 — currently a stub)."""
-    cmd_reindex()
+@click.option("--full", is_flag=True, help="Full rebuild (ignore incremental state).")
+@click.option("--project", default=None, help="Only reindex this project.")
+def ctx_reindex(full: bool, project: str | None) -> None:
+    """Build or update the code structure index (SQLite FTS5)."""
+    cmd_reindex(full=full, project_name=project)
 
 
 @ctx.command("ingest")
@@ -94,9 +99,72 @@ def ctx_ingest() -> None:
 
 @ctx.command("search")
 @click.argument("query")
-def ctx_search(query: str) -> None:
-    """Search the context library (M2 — currently a stub)."""
-    cmd_search(query)
+@click.option("--project", default=None, help="Limit to this project.")
+@click.option("--json", "as_json", is_flag=True, help="JSON output.")
+def ctx_search(query: str, project: str | None, as_json: bool) -> None:
+    """Search the code index for symbols matching QUERY."""
+    cmd_search(query, project=project, as_json=as_json)
+
+
+@ctx.command("symbol")
+@click.argument("name")
+@click.option("--kind", default=None, help="Filter by kind (function, class, method, ...).")
+@click.option("--project", default=None, help="Limit to this project.")
+@click.option("--json", "as_json", is_flag=True, help="JSON output.")
+def ctx_symbol(name: str, kind: str | None, project: str | None, as_json: bool) -> None:
+    """Look up a symbol by exact name."""
+    cmd_symbol(name, kind=kind, project=project, as_json=as_json)
+
+
+@ctx.command("file")
+@click.argument("path")
+@click.option("--project", default=None)
+@click.option("--json", "as_json", is_flag=True)
+def ctx_file(path: str, project: str | None, as_json: bool) -> None:
+    """Show top-level symbols defined in a file."""
+    cmd_file(path, project=project, as_json=as_json)
+
+
+@ctx.command("callers")
+@click.argument("name")
+@click.option("--project", default=None)
+@click.option("--json", "as_json", is_flag=True)
+def ctx_callers(name: str, project: str | None, as_json: bool) -> None:
+    """Show call sites for a function/method."""
+    cmd_callers(name, project=project, as_json=as_json)
+
+
+@ctx.command("imports")
+@click.argument("module")
+@click.option("--reverse", is_flag=True, help="Show files that import this module.")
+@click.option("--project", default=None)
+@click.option("--json", "as_json", is_flag=True)
+def ctx_imports(module: str, reverse: bool, project: str | None, as_json: bool) -> None:
+    """Show import graph for a file or module."""
+    cmd_imports(module, reverse=reverse, project=project, as_json=as_json)
+
+
+@ctx.command("hierarchy")
+@click.argument("class_name")
+@click.option("--project", default=None)
+@click.option("--json", "as_json", is_flag=True)
+def ctx_hierarchy(class_name: str, project: str | None, as_json: bool) -> None:
+    """Show inheritance hierarchy for a class."""
+    cmd_hierarchy(class_name, project=project, as_json=as_json)
+
+
+@ctx.command("query")
+@click.argument("sql")
+@click.option("--json", "as_json", is_flag=True)
+def ctx_query(sql: str, as_json: bool) -> None:
+    """Execute a raw SQL query against the code index."""
+    cmd_query(sql, as_json=as_json)
+
+
+@ctx.command("stats")
+def ctx_stats() -> None:
+    """Show code index statistics."""
+    cmd_stats()
 
 
 # --------------------------------------------------------------------------- #
