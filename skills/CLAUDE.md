@@ -43,6 +43,27 @@ hierarchies. **Use it instead of grep/glob for structural questions.**
 | Rebuild after code changes | `harness ctx reindex` |
 | Custom query | `harness ctx query "SELECT ..." --json` |
 
+### Semantic search (ChromaDB)
+
+If `chromadb` is installed (`pip install chromadb`), the index also
+maintains a vector store for **natural-language queries**:
+
+| Task | Command |
+| --- | --- |
+| Find code by description | `harness ctx semantic "functions that blur images" --json` |
+| Semantic search by kind | `harness ctx semantic "error handling" --kind function --json` |
+| Limit results | `harness ctx semantic "config parsing" -n 5 --json` |
+
+**When to use semantic vs. keyword search:**
+- **`ctx search`** — you know the symbol name or part of it (FTS5 keyword match)
+- **`ctx semantic`** — you know what the code *does* but not its name (vector similarity)
+- **`ctx symbol`** — you know the exact name (direct lookup)
+
+Semantic search is automatically built during `harness ctx reindex` when
+chromadb is installed. If not installed, all other commands still work.
+
+### General notes
+
 Always use `--json` for programmatic consumption. The index is rebuilt
 automatically during initialization (Phase 6.5) and can be refreshed
 incrementally at any time with `harness ctx reindex`.

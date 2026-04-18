@@ -16,6 +16,9 @@ dependencies = [
 test = [
     "pytest>=8.0",
 ]
+semantic = [
+    "chromadb>=0.5",
+]
 
 [project.scripts]
 harness = "harness.cli:main"

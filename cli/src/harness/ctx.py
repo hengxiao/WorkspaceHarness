@@ -114,6 +114,17 @@ def cmd_reindex(full: bool = False, project_name: str | None = None) -> dict:
             f"(+{summary['new']} new, ~{summary['changed']} changed, "
             f"-{summary['deleted']} deleted)"
         )
+
+    from .index.semantic import HAS_CHROMADB
+    if HAS_CHROMADB and results:
+        from .index.semantic import build_semantic_index
+        console.print("[bold]building semantic index[/bold] …", end=" ")
+        sem = build_semantic_index(root, project=project_name, full=full)
+        console.print(
+            f"[green]{sem['total']} vectors[/green] "
+            f"(+{sem['added']} new)"
+        )
+
     return results
 
 
@@ -262,6 +273,49 @@ def cmd_query(sql: str, as_json: bool = False) -> None:
         console.print(dict(r))
 
 
+def cmd_semantic(
+    query: str,
+    *,
+    project: str | None = None,
+    kind: str | None = None,
+    n_results: int = 10,
+    as_json: bool = False,
+) -> None:
+    """Semantic search — natural-language queries against code symbols."""
+    from .index.semantic import HAS_CHROMADB
+    if not HAS_CHROMADB:
+        console.print(
+            "[red]chromadb is not installed.[/red] "
+            "Install it with: [bold]pip install chromadb[/bold]\n"
+            "Then run [bold]harness ctx reindex[/bold] to build the semantic index."
+        )
+        return
+
+    from .index.semantic import semantic_search
+    root = find_harness_root()
+    rows = semantic_search(root, query, project=project, kind=kind, n_results=n_results)
+    if as_json:
+        console.print(json.dumps(rows, indent=2))
+        return
+    if not rows:
+        console.print(f"[yellow]no semantic results for {query!r}[/yellow]")
+        return
+    table = Table(title=f"semantic: {query}")
+    table.add_column("name")
+    table.add_column("kind")
+    table.add_column("file")
+    table.add_column("line")
+    table.add_column("dist")
+    table.add_column("signature")
+    for r in rows:
+        table.add_row(
+            r["name"], r["kind"], r["path"],
+            str(r["line_start"]), f"{r['distance']:.3f}",
+            (r.get("signature") or "")[:60],
+        )
+    console.print(table)
+
+
 def cmd_stats() -> None:
     """Show index statistics."""
     from .index.api import index_stats
@@ -284,3 +338,11 @@ def cmd_stats() -> None:
             console.print(f"    {name}: {count} files")
     if stats.get("last_indexed_at"):
         console.print(f"  last indexed: {stats['last_indexed_at']}")
+
+    from .index.semantic import HAS_CHROMADB
+    if HAS_CHROMADB:
+        from .index.semantic import semantic_stats
+        sem = semantic_stats(root)
+        console.print(f"  semantic vectors: {sem['total_documents']}")
+    else:
+        console.print("  semantic: [dim]not available (pip install chromadb)[/dim]")

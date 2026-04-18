@@ -615,3 +615,113 @@ def test_main():
         assert stats["files"] > 0
         assert stats["symbols"] > 0
         assert "mylib" in stats["projects"]
+
+
+# ---------------------------------------------------------------------------
+# Semantic search (ChromaDB) — skipped if chromadb not installed
+# ---------------------------------------------------------------------------
+
+try:
+    import chromadb
+    _has_chromadb = True
+except ImportError:
+    _has_chromadb = False
+
+needs_chromadb = pytest.mark.skipif(
+    not _has_chromadb, reason="chromadb not installed"
+)
+
+
+@needs_chromadb
+class TestSemanticSearch:
+    def _make_project(self, tmp_path: Path) -> tuple[Path, Path]:
+        harness = tmp_path / "harness"
+        project = harness / "projects" / "mylib"
+        _touch(harness / "skills" / "CLAUDE.md", "---\ntitle: x\n---\n")
+        _touch(harness / "harness.yml", """
+projects:
+  - name: mylib
+    path: projects/mylib
+    runtime:
+      language: [python]
+""")
+        _touch(project / "mylib" / "image.py", """
+def blur_image(src, kernel_size=5):
+    \"\"\"Apply Gaussian blur to smooth an image.\"\"\"
+    pass
+
+def sharpen_image(src, amount=1.0):
+    \"\"\"Enhance edges to make an image appear sharper.\"\"\"
+    pass
+
+def resize_image(src, width, height):
+    \"\"\"Scale an image to the given dimensions.\"\"\"
+    pass
+
+def detect_edges(src, threshold=100):
+    \"\"\"Find edges in an image using Canny edge detection.\"\"\"
+    pass
+""")
+        _touch(project / "mylib" / "math.py", """
+def matrix_multiply(a, b):
+    \"\"\"Multiply two matrices together.\"\"\"
+    pass
+
+def solve_linear_system(coefficients, constants):
+    \"\"\"Solve a system of linear equations Ax = b.\"\"\"
+    pass
+""")
+        return harness, project
+
+    def test_build_semantic_index(self, tmp_path: Path):
+        from harness.index.semantic import build_semantic_index
+        harness, project = self._make_project(tmp_path)
+        reindex(harness, "mylib", project)
+        result = build_semantic_index(harness)
+        assert result["total"] > 0
+        assert result["added"] > 0
+
+    def test_semantic_search_returns_relevant_results(self, tmp_path: Path):
+        from harness.index.semantic import build_semantic_index, semantic_search
+        harness, project = self._make_project(tmp_path)
+        reindex(harness, "mylib", project)
+        build_semantic_index(harness)
+        results = semantic_search(harness, "smooth an image")
+        assert len(results) > 0
+        names = [r["name"] for r in results]
+        assert "blur_image" in names
+
+    def test_semantic_search_with_kind_filter(self, tmp_path: Path):
+        from harness.index.semantic import build_semantic_index, semantic_search
+        harness, project = self._make_project(tmp_path)
+        reindex(harness, "mylib", project)
+        build_semantic_index(harness)
+        results = semantic_search(harness, "linear algebra", kind="function")
+        for r in results:
+            assert r["kind"] in ("function", "def")
+
+    def test_semantic_stats(self, tmp_path: Path):
+        from harness.index.semantic import build_semantic_index, semantic_stats
+        harness, project = self._make_project(tmp_path)
+        reindex(harness, "mylib", project)
+        build_semantic_index(harness)
+        stats = semantic_stats(harness)
+        assert stats["total_documents"] > 0
+
+    def test_incremental_build_skips_existing(self, tmp_path: Path):
+        from harness.index.semantic import build_semantic_index
+        harness, project = self._make_project(tmp_path)
+        reindex(harness, "mylib", project)
+        r1 = build_semantic_index(harness)
+        r2 = build_semantic_index(harness)
+        assert r2["added"] == 0
+        assert r2["total"] == r1["total"]
+
+    def test_full_rebuild(self, tmp_path: Path):
+        from harness.index.semantic import build_semantic_index
+        harness, project = self._make_project(tmp_path)
+        reindex(harness, "mylib", project)
+        r1 = build_semantic_index(harness)
+        r2 = build_semantic_index(harness, full=True)
+        assert r2["added"] > 0
+        assert r2["total"] == r1["total"]

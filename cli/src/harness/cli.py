@@ -12,7 +12,8 @@ from .bootstrap import run_bootstrap
 from .config import find_harness_root
 from .ctx import (
     cmd_add, cmd_callers, cmd_file, cmd_hierarchy, cmd_imports,
-    cmd_query, cmd_reindex, cmd_search, cmd_stats, cmd_symbol, cmd_validate,
+    cmd_query, cmd_reindex, cmd_search, cmd_semantic, cmd_stats,
+    cmd_symbol, cmd_validate,
 )
 from .detect import detect_project, render_yaml_snippet
 from .exec_ import run_exec
@@ -159,6 +160,20 @@ def ctx_hierarchy(class_name: str, project: str | None, as_json: bool) -> None:
 def ctx_query(sql: str, as_json: bool) -> None:
     """Execute a raw SQL query against the code index."""
     cmd_query(sql, as_json=as_json)
+
+
+@ctx.command("semantic")
+@click.argument("query")
+@click.option("--project", default=None, help="Limit to this project.")
+@click.option("--kind", default=None, help="Filter by symbol kind.")
+@click.option("-n", "--n-results", default=10, type=int, help="Number of results.")
+@click.option("--json", "as_json", is_flag=True, help="JSON output.")
+def ctx_semantic(query: str, project: str | None, kind: str | None, n_results: int, as_json: bool) -> None:
+    """Semantic search — natural-language queries over code symbols.
+
+    Requires chromadb: pip install chromadb
+    """
+    cmd_semantic(query, project=project, kind=kind, n_results=n_results, as_json=as_json)
 
 
 @ctx.command("stats")

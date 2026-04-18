@@ -588,10 +588,85 @@ Pass-through SQL execution for custom queries. Returns `list[dict]`.
 Returns row counts for all tables, per-project file counts, and
 `last_indexed_at` timestamp.
 
-## 8. CLI Commands
+## 8. Semantic Search (`semantic.py`)
+
+### 8.1 Overview
+
+An optional ChromaDB-backed vector store that enables natural-language
+queries over code symbols. While the SQLite FTS5 index handles keyword
+matches (`search "GaussianBlur"`), the semantic index handles conceptual
+queries (`semantic "functions that blur images"`).
+
+**Dependency:** `pip install chromadb` (optional). If not installed, all
+structural commands still work; only `ctx semantic` is unavailable.
+
+**Storage:** `.harness/chroma/` (persistent ChromaDB directory, gitignored).
+
+**Embedding model:** ChromaDB's default embedding function
+(`all-MiniLM-L6-v2` via `sentence-transformers`, ~80 MB model downloaded
+on first use). No API keys required.
+
+### 8.2 What gets embedded
+
+Each symbol from the SQLite `symbols` table becomes a ChromaDB document:
+
+**Document ID:** `{project}:{path}:{name}:{line_start}`
+
+**Document text** (what the embedding model sees):
+```
+{kind} {name}
+{signature}
+{docstring}
+in {path}
+```
+
+**Metadata** (stored alongside, returned in results):
+- `project`, `path`, `language`, `kind`, `name`
+- `line_start`, `line_end`, `visibility`, `is_export`
+- `signature` (truncated to 500 chars)
+
+### 8.3 Build flow
+
+`build_semantic_index()` is called automatically after the SQLite reindex
+when chromadb is installed:
+
+1. Read all symbols from `.harness/code.db`.
+2. For incremental builds, query existing ChromaDB IDs and skip known symbols.
+3. For full builds (`--full`), delete and recreate the collection.
+4. Batch-insert in groups of 500 documents.
+5. ChromaDB handles embedding computation internally.
+
+### 8.4 Query flow
+
+`semantic_search(root, query, project=None, kind=None, n_results=10)`:
+
+1. Connect to the persistent ChromaDB client.
+2. Get the `code_symbols` collection.
+3. Build a `where` filter from project/kind constraints.
+4. Call `collection.query(query_texts=[query], ...)`.
+5. Return results with metadata + cosine distance score.
+
+Lower distance = higher similarity. Typical ranges:
+- 0.0–0.3: strong match
+- 0.3–0.6: related
+- 0.6+: weak/noise
+
+### 8.5 When to use which search
+
+| Scenario | Best command | Why |
+|----------|-------------|-----|
+| Know the exact name | `ctx symbol GaussianBlur` | Direct lookup, fastest |
+| Know part of the name | `ctx search "Gaussian"` | FTS5 keyword match |
+| Know what it does, not its name | `ctx semantic "image smoothing"` | Vector similarity |
+| Exploring an unfamiliar codebase | `ctx semantic "error handling utilities"` | Conceptual search |
+| Finding related functions | `ctx semantic "matrix multiplication"` | Semantic neighborhood |
+
+## 9. CLI Commands
 
 All commands are under the `harness ctx` group. Agent-facing commands
 support `--json` for structured output.
+
+### 9.1 Structural commands (SQLite, always available)
 
 | Command | Function | Purpose |
 |---------|----------|---------|
@@ -603,11 +678,19 @@ support `--json` for structured output.
 | `ctx imports <module> [--reverse] [--json]` | `cmd_imports()` | Import graph |
 | `ctx hierarchy <class> [--json]` | `cmd_hierarchy()` | Inheritance tree |
 | `ctx query <sql> [--json]` | `cmd_query()` | Raw SQL |
-| `ctx stats` | `cmd_stats()` | Index summary |
+| `ctx stats` | `cmd_stats()` | Index summary (includes semantic count) |
+
+### 9.2 Semantic commands (ChromaDB, requires `pip install chromadb`)
+
+| Command | Function | Purpose |
+|---------|----------|---------|
+| `ctx semantic <query> [--kind K] [-n N] [--json]` | `cmd_semantic()` | Natural-language search |
 
 `cmd_reindex()` loads `HarnessConfig` to discover projects and iterates
-over each, calling `api.reindex()`. It prints a one-line summary per
-project showing file/symbol/ref counts and deltas.
+over each, calling `api.reindex()`. When chromadb is installed, it also
+calls `build_semantic_index()` automatically. It prints a one-line
+summary per project showing file/symbol/ref counts and deltas, plus
+semantic vector count.
 
 ## 9. Integration Points
 
