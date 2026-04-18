@@ -47,6 +47,7 @@ _LANGUAGE_MANIFESTS: list[tuple[str, list[str]]] = [
     ("elixir",     ["mix.exs"]),
     ("php",        ["composer.json"]),
     ("c",          ["configure.ac", "CMakeLists.txt"]),
+    ("csharp",     ["Directory.Build.props"]),
 ]
 
 
@@ -119,6 +120,9 @@ def _detect_deps_command(path: Path, languages: list[str]) -> Optional[str]:
             return "./autogen.sh && ./configure"
         if (path / "CMakeLists.txt").exists():
             return "cmake -S . -B build"
+
+    if "csharp" in languages:
+        return "dotnet restore"
 
     return None
 
@@ -194,6 +198,8 @@ def _detect_test_command(path: Path, languages: list[str]) -> Optional[str]:
         return "mix test"
     if "php" in languages:
         return "vendor/bin/phpunit"
+    if "csharp" in languages:
+        return "dotnet test"
     return None
 
 
@@ -220,6 +226,8 @@ def _detect_build_command(path: Path, languages: list[str]) -> Optional[str]:
         return "go build ./..."
     if "c" in languages and "make" not in targets:
         return "make"
+    if "csharp" in languages:
+        return "dotnet build --no-restore"
     return None
 
 
@@ -281,6 +289,9 @@ def _detect_lint_command(path: Path, languages: list[str]) -> Optional[str]:
                 text = ""
             if "[tool.ruff" in text:
                 return "ruff check ."
+    if "csharp" in languages:
+        if (path / ".editorconfig").exists() or (path / "Directory.Build.props").exists():
+            return "dotnet format --verify-no-changes"
     return None
 
 
