@@ -120,6 +120,7 @@ class HarnessConfig:
     projects: list[Project] = field(default_factory=list)
     services: list[dict[str, Any]] = field(default_factory=list)
     context_ingest: list[dict[str, Any]] = field(default_factory=list)
+    context_index: dict[str, Any] = field(default_factory=dict)
     agent: dict[str, Any] = field(default_factory=dict)
     base_image: str = "ubuntu:24.04"
     runtime_blocks: dict[str, str] = field(default_factory=dict)
@@ -159,6 +160,7 @@ class HarnessConfig:
             projects=projects,
             services=data.get("services") or [],
             context_ingest=(data.get("context") or {}).get("ingest", []) or [],
+            context_index=(data.get("context") or {}).get("index", {}) or {},
             agent=data.get("agent") or {},
             base_image=env_block.get("base_image", "ubuntu:24.04"),
             runtime_blocks=runtime_blocks,

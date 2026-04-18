@@ -4,8 +4,12 @@ Embeds symbol signatures and docstrings into a persistent ChromaDB
 collection so agents can ask natural-language questions like "find
 functions that blur images" instead of exact keyword matches.
 
-Requires: pip install chromadb
+Requires: pip install chromadb sentence-transformers
 Storage:  .harness/chroma/ (gitignored, rebuilt on demand)
+
+Default model: nomic-embed-text-v1.5 (768 dims, Apache 2.0, good code
+understanding). Configurable via context.index.embedding_model in
+harness.yml.
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ def _check_chromadb() -> bool:
 
 HAS_CHROMADB = _check_chromadb()
 
+DEFAULT_MODEL = "nomic-ai/nomic-embed-text-v1.5"
 CHROMA_DIR_NAME = "chroma"
 COLLECTION_NAME = "code_symbols"
 BATCH_SIZE = 500
@@ -42,9 +47,23 @@ def _get_client(harness_root: Path):
     return chromadb.PersistentClient(path=str(path))
 
 
-def _get_or_create_collection(client):
+def _get_embedding_function(model_name: str | None = None):
+    """Build the embedding function for the given model."""
+    from chromadb.utils.embedding_functions import (
+        SentenceTransformerEmbeddingFunction,
+    )
+    model = model_name or DEFAULT_MODEL
+    return SentenceTransformerEmbeddingFunction(
+        model_name=model,
+        trust_remote_code=True,
+    )
+
+
+def _get_or_create_collection(client, model_name: str | None = None):
+    ef = _get_embedding_function(model_name)
     return client.get_or_create_collection(
         name=COLLECTION_NAME,
+        embedding_function=ef,
         metadata={"hnsw:space": "cosine"},
     )
 
@@ -75,6 +94,7 @@ def build_semantic_index(
     harness_root: Path,
     project: str | None = None,
     full: bool = False,
+    model_name: str | None = None,
 ) -> dict:
     """Build or rebuild the ChromaDB semantic index from the SQLite index.
 
@@ -92,7 +112,7 @@ def build_semantic_index(
         except Exception:
             pass
 
-    collection = _get_or_create_collection(client)
+    collection = _get_or_create_collection(client, model_name)
 
     sql = """
         SELECT s.id, s.name, s.kind, s.signature, s.docstring,
@@ -176,14 +196,16 @@ def semantic_search(
     project: str | None = None,
     kind: str | None = None,
     n_results: int = 10,
+    model_name: str | None = None,
 ) -> list[dict]:
     """Search the semantic index with a natural-language query.
 
     Returns a list of dicts with symbol info and distance score.
     """
     client = _get_client(harness_root)
+    ef = _get_embedding_function(model_name)
     try:
-        collection = client.get_collection(COLLECTION_NAME)
+        collection = client.get_collection(COLLECTION_NAME, embedding_function=ef)
     except Exception:
         return []
 

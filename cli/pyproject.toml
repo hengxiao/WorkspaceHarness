@@ -18,6 +18,8 @@ test = [
 ]
 semantic = [
     "chromadb>=0.5",
+    "sentence-transformers>=3.0",
+    "einops>=0.8",
 ]
 
 [project.scripts]

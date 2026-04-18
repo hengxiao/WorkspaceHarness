@@ -80,6 +80,14 @@ def cmd_validate() -> list[str]:
     return errors
 
 
+def _get_embedding_model(cfg: HarnessConfig | None = None) -> str:
+    """Read embedding model from harness.yml context.index.embedding_model."""
+    from .index.semantic import DEFAULT_MODEL
+    if cfg is None:
+        return DEFAULT_MODEL
+    return cfg.context_index.get("embedding_model", DEFAULT_MODEL)
+
+
 def cmd_reindex(full: bool = False, project_name: str | None = None) -> dict:
     """Build or update the code structure index."""
     from .index.api import reindex
@@ -118,8 +126,9 @@ def cmd_reindex(full: bool = False, project_name: str | None = None) -> dict:
     from .index.semantic import HAS_CHROMADB
     if HAS_CHROMADB and results:
         from .index.semantic import build_semantic_index
-        console.print("[bold]building semantic index[/bold] …", end=" ")
-        sem = build_semantic_index(root, project=project_name, full=full)
+        model = _get_embedding_model(cfg)
+        console.print(f"[bold]building semantic index[/bold] ({model}) …", end=" ")
+        sem = build_semantic_index(root, project=project_name, full=full, model_name=model)
         console.print(
             f"[green]{sem['total']} vectors[/green] "
             f"(+{sem['added']} new)"
@@ -293,7 +302,12 @@ def cmd_semantic(
 
     from .index.semantic import semantic_search
     root = find_harness_root()
-    rows = semantic_search(root, query, project=project, kind=kind, n_results=n_results)
+    try:
+        cfg = HarnessConfig.load(root)
+    except FileNotFoundError:
+        cfg = None
+    model = _get_embedding_model(cfg)
+    rows = semantic_search(root, query, project=project, kind=kind, n_results=n_results, model_name=model)
     if as_json:
         console.print(json.dumps(rows, indent=2))
         return
